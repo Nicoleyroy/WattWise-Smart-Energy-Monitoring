@@ -1,15 +1,17 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
+import axios from 'axios';
 import AlertCard from '@/Components/AlertCard.vue';
 import PortCard from '@/Components/PortCard.vue';
 import SummaryCard from '@/Components/SummaryCard.vue';
 
-const summaryCards = [
+// Reactive data
+const summaryCards = ref([
     {
         id: 1,
         title: 'Current Power',
-        value: '3650W',
+        value: '0W',
         subtitle: 'Active consumption',
         tone: 'solid-blue',
         icon: 'bolt',
@@ -17,7 +19,7 @@ const summaryCards = [
     {
         id: 2,
         title: 'Record',
-        value: '112.5 kWh',
+        value: '0 kWh',
         subtitle: 'Monthly energy logs',
         tone: 'solid-green',
         icon: 'record',
@@ -25,7 +27,7 @@ const summaryCards = [
     {
         id: 3,
         title: "Today's Usage",
-        value: '23.0 kWh',
+        value: '0 kWh',
         subtitle: 'Energy consumed',
         tone: 'light',
         icon: 'usage',
@@ -34,90 +36,166 @@ const summaryCards = [
     {
         id: 4,
         title: 'Threshold',
-        value: '3',
+        value: '0',
         subtitle: 'Active thresholds',
         tone: 'light',
         icon: 'threshold',
         iconClass: 'bg-amber-50 text-amber-600',
     },
-];
+]);
 
-const alertData = {
+const alertData = ref({
     heading: 'Maintenance Alerts',
-    subheading: '1 appliance needs attention',
-    title: 'Refrigerator',
-    message: 'Refrigerator may need maintenance soon. Schedule a check.',
-    badgeText: 'Warning',
+    subheading: 'No alerts',
+    title: '',
+    message: '',
+    badgeText: '',
+});
+
+const ports = ref([]);
+const loading = ref(true);
+const error = ref(null);
+
+// Polling interval (5 seconds for real-time updates)
+let pollingInterval = null;
+const POLL_INTERVAL = 10000;
+
+// Format value with unit
+const formatValue = (value, unit) => {
+    if (typeof value === 'number') {
+        return `${value}${unit}`;
+    }
+    return value;
 };
 
-const ports = ref([
-    {
-        id: 1,
-        name: 'Port 1',
-        isOn: true,
-        power: '1500W',
+// Format port data from API
+const formatPort = (port) => {
+    return {
+        id: port.id,
+        name: port.name || `Port ${port.id}`,
+        isOn: port.is_on ?? false,
+        power: formatValue(port.power, 'W'),
         metricLabel: 'Cost/Hour',
-        metricValue: '₱18.75',
-        todayKwh: '12.5 kWh',
-        status: 'Healthy',
-        statusTone: 'healthy',
-    },
-    {
-        id: 2,
-        name: 'Port 2',
-        isOn: true,
-        power: '150W',
-        metricLabel: 'Cost/Hour',
-        metricValue: '₱3.60',
-        todayKwh: '3.6 kWh',
-        status: 'Check Soon',
-        statusTone: 'warning',
-    },
-    {
-        id: 3,
-        name: 'Port 3',
-        isOn: false,
-        power: '80W',
-        metricLabel: 'Cost/Hour',
-        metricValue: '₱0.96',
-        todayKwh: '1.2 kWh',
-        status: 'Healthy',
-        statusTone: 'healthy',
-    },
-    {
-        id: 4,
-        name: 'Port 4',
-        isOn: false,
-        power: '500W',
-        metricLabel: 'Usage/Hour',
-        metricValue: '1.2 kWh',
-        todayKwh: '4.8 kWh',
-        status: 'Healthy',
-        statusTone: 'healthy',
-    },
-    {
-        id: 5,
-        name: 'Port 5',
-        isOn: true,
-        power: '2000W',
-        metricLabel: 'Cost/Hour',
-        metricValue: '₱24.00',
-        todayKwh: '18.4 kWh',
-        status: 'Check Soon',
-        statusTone: 'warning',
-    },
-    {
-        id: 6,
-        name: 'Port 6',
-        isOn: false,
-        power: '1200W',
-        metricLabel: 'Cost/Hour',
-        metricValue: '₱14.40',
-        todayKwh: '9.2 kWh',
-        status: 'Healthy',
-        statusTone: 'healthy',
-    },
-]);
+        metricValue: `₱${(port.cost_per_hour || 0).toFixed(2)}`,
+        todayKwh: formatValue(port.today_kwh, ' kWh'),
+        status: port.status || 'Healthy',
+        statusTone: port.status_tone || 'healthy',
+    };
+};
+
+// Fetch dashboard data
+const fetchDashboardData = async () => {
+    try {
+        loading.value = true;
+        error.value = null;
+
+        const response = await axios.get('/api/dashboard/data');
+
+        if (response.data) {
+            const data = response.data;
+
+            // Update summary cards
+            if (data.summary) {
+                summaryCards.value[0].value = formatValue(data.summary.current_power?.value || 0, 'W');
+                summaryCards.value[1].value = formatValue(data.summary.record?.value || 0, ' kWh');
+                summaryCards.value[2].value = formatValue(data.summary.today_usage?.value || 0, ' kWh');
+                summaryCards.value[3].value = String(data.summary.thresholds?.count || 0);
+            }
+
+            // Update ports
+            if (data.ports && Array.isArray(data.ports)) {
+                ports.value = data.ports.map(formatPort);
+            }
+
+            // Update alerts
+            if (data.alerts) {
+                const alerts = data.alerts.alerts || [];
+                if (alerts.length > 0) {
+                    const firstAlert = alerts[0];
+                    alertData.value = {
+                        heading: data.alerts.heading || 'Maintenance Alerts',
+                        subheading: data.alerts.subheading || `${alerts.length} appliance(s) need attention`,
+                        title: firstAlert.title || '',
+                        message: firstAlert.message || '',
+                        badgeText: firstAlert.badge_text || 'Warning',
+                    };
+                } else {
+                    alertData.value = {
+                        heading: 'Maintenance Alerts',
+                        subheading: 'No alerts',
+                        title: '',
+                        message: '',
+                        badgeText: '',
+                    };
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Failed to fetch dashboard data:', err);
+        error.value = 'Failed to load dashboard data. Please check your IoT connection.';
+        // Keep mock data visible on error
+    } finally {
+        loading.value = false;
+    }
+};
+
+// Toggle port ON/OFF
+const togglePort = async (portId, currentState) => {
+    try {
+        const newState = !currentState;
+        
+        // Optimistic update
+        const port = ports.value.find(p => p.id === portId);
+        if (port) {
+            port.isOn = newState;
+        }
+
+        const response = await axios.post(`/api/ports/${portId}/toggle`, {
+            state: newState,
+        });
+
+        if (response.data && response.data.port) {
+            // Update with server response
+            const index = ports.value.findIndex(p => p.id === portId);
+            if (index !== -1) {
+                ports.value[index] = formatPort(response.data.port);
+            }
+        }
+    } catch (err) {
+        console.error('Failed to toggle port:', err);
+        // Revert optimistic update
+        const port = ports.value.find(p => p.id === portId);
+        if (port) {
+            port.isOn = currentState;
+        }
+        alert('Failed to toggle port. Please try again.');
+    }
+};
+
+// Start polling for real-time updates
+const startPolling = () => {
+    pollingInterval = setInterval(() => {
+        fetchDashboardData();
+    }, POLL_INTERVAL);
+};
+
+// Stop polling
+const stopPolling = () => {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+};
+
+// Lifecycle hooks
+onMounted(() => {
+    fetchDashboardData();
+    startPolling();
+});
+
+onUnmounted(() => {
+    stopPolling();
+});
 </script>
 
 <template>
@@ -254,7 +332,7 @@ const ports = ref([
                 </SummaryCard>
             </section>
 
-            <section class="mt-6">
+            <section class="mt-6" v-if="alertData.title || alertData.message">
                 <AlertCard
                     :heading="alertData.heading"
                     :subheading="alertData.subheading"
@@ -267,10 +345,24 @@ const ports = ref([
             <section
                 class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3"
             >
+                <div v-if="loading && ports.length === 0" class="col-span-full text-center py-12">
+                    <p class="text-slate-500">Loading dashboard data...</p>
+                </div>
+                <div v-else-if="error && ports.length === 0" class="col-span-full text-center py-12">
+                    <p class="text-red-500">{{ error }}</p>
+                    <button
+                        @click="fetchDashboardData"
+                        class="mt-4 px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700"
+                    >
+                        Retry
+                    </button>
+                </div>
                 <PortCard
                     v-for="port in ports"
+                    v-else
                     :key="port.id"
-                    v-model="port.isOn"
+                    :model-value="port.isOn"
+                    @update:model-value="(value) => togglePort(port.id, port.isOn)"
                     :name="port.name"
                     :power="port.power"
                     :metric-label="port.metricLabel"
