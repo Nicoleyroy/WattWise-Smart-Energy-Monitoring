@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\IoTController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -13,7 +14,14 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
+// Public endpoint for ESP32 to send energy data (no auth required)
+Route::post('/iot/energy', [IoTController::class, 'storeEnergyReading'])->name('api.iot.energy');
+
+// Protected endpoints
 Route::middleware(['auth'])->group(function () {
+    // IoT data retrieval (for authenticated users)
+    Route::get('/iot/readings', [IoTController::class, 'getLatestReadings'])->name('api.iot.readings');
+    Route::get('/iot/statistics', [IoTController::class, 'getStatistics'])->name('api.iot.statistics');
     // Dashboard data endpoints
     Route::get('/dashboard/data', [DashboardController::class, 'getDashboardData'])->name('api.dashboard.data');
     

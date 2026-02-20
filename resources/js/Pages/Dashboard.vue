@@ -5,6 +5,9 @@ import axios from 'axios';
 import AlertCard from '@/Components/AlertCard.vue';
 import PortCard from '@/Components/PortCard.vue';
 import SummaryCard from '@/Components/SummaryCard.vue';
+import Sidebar from '@/Components/Sidebar.vue';
+import EnergyGraph from '@/Components/EnergyGraph.vue';
+import DeviceCard from '@/Components/DeviceCard.vue';
 
 // Reactive data
 const summaryCards = ref([
@@ -52,166 +55,78 @@ const alertData = ref({
     badgeText: '',
 });
 
+
 const ports = ref([]);
 const loading = ref(true);
 const error = ref(null);
 
-// Polling interval (5 seconds for real-time updates)
-let pollingInterval = null;
-const POLL_INTERVAL = 10000;
-
-// Format value with unit
-const formatValue = (value, unit) => {
-    if (typeof value === 'number') {
-        return `${value}${unit}`;
+const devices = ref([
+    {
+        id: 1,
+        name: 'Plug 1',
+        status: 'Active',
+        currentPower: 46,
+        thresholdLimit: 100,
+        todayUsage: 1.2,
+        isOn: true
+    },
+    {
+        id: 2,
+        name: 'Plug 2',
+        status: 'Active',
+        currentPower: 108,
+        thresholdLimit: 200,
+        todayUsage: 3.4,
+        isOn: true
+    },
+    {
+        id: 3,
+        name: 'Plug 3',
+        status: 'Standby',
+        currentPower: 0,
+        thresholdLimit: 500,
+        todayUsage: 2.1,
+        isOn: false
     }
-    return value;
-};
+]);
 
-// Format port data from API
-const formatPort = (port) => {
-    return {
-        id: port.id,
-        name: port.name || `Port ${port.id}`,
-        isOn: port.is_on ?? false,
-        power: formatValue(port.power, 'W'),
-        metricLabel: 'Cost/Hour',
-        metricValue: `₱${(port.cost_per_hour || 0).toFixed(2)}`,
-        todayKwh: formatValue(port.today_kwh, ' kWh'),
-        status: port.status || 'Healthy',
-        statusTone: port.status_tone || 'healthy',
-    };
-};
-
-// Fetch dashboard data
-const fetchDashboardData = async () => {
-    try {
-        loading.value = true;
-        error.value = null;
-
-        const response = await axios.get('/api/dashboard/data');
-
-        if (response.data) {
-            const data = response.data;
-
-            // Update summary cards
-            if (data.summary) {
-                summaryCards.value[0].value = formatValue(data.summary.current_power?.value || 0, 'W');
-                summaryCards.value[1].value = formatValue(data.summary.record?.value || 0, ' kWh');
-                summaryCards.value[2].value = formatValue(data.summary.today_usage?.value || 0, ' kWh');
-                summaryCards.value[3].value = String(data.summary.thresholds?.count || 0);
-            }
-
-            // Update ports
-            if (data.ports && Array.isArray(data.ports)) {
-                ports.value = data.ports.map(formatPort);
-            }
-
-            // Update alerts
-            if (data.alerts) {
-                const alerts = data.alerts.alerts || [];
-                if (alerts.length > 0) {
-                    const firstAlert = alerts[0];
-                    alertData.value = {
-                        heading: data.alerts.heading || 'Maintenance Alerts',
-                        subheading: data.alerts.subheading || `${alerts.length} appliance(s) need attention`,
-                        title: firstAlert.title || '',
-                        message: firstAlert.message || '',
-                        badgeText: firstAlert.badge_text || 'Warning',
-                    };
-                } else {
-                    alertData.value = {
-                        heading: 'Maintenance Alerts',
-                        subheading: 'No alerts',
-                        title: '',
-                        message: '',
-                        badgeText: '',
-                    };
-                }
-            }
+const handleDeviceToggle = (deviceId, newState) => {
+    const device = devices.value.find(d => d.id === deviceId);
+    if (device) {
+        device.isOn = newState;
+        device.status = newState ? 'Active' : 'Standby';
+        if (!newState) {
+            device.currentPower = 0;
         }
-    } catch (err) {
-        console.error('Failed to fetch dashboard data:', err);
-        error.value = 'Failed to load dashboard data. Please check your IoT connection.';
-        // Keep mock data visible on error
-    } finally {
-        loading.value = false;
     }
 };
 
-// Toggle port ON/OFF
-const togglePort = async (portId, currentState) => {
-    try {
-        const newState = !currentState;
-        
-        // Optimistic update
-        const port = ports.value.find(p => p.id === portId);
-        if (port) {
-            port.isOn = newState;
-        }
-
-        const response = await axios.post(`/api/ports/${portId}/toggle`, {
-            state: newState,
-        });
-
-        if (response.data && response.data.port) {
-            // Update with server response
-            const index = ports.value.findIndex(p => p.id === portId);
-            if (index !== -1) {
-                ports.value[index] = formatPort(response.data.port);
-            }
-        }
-    } catch (err) {
-        console.error('Failed to toggle port:', err);
-        // Revert optimistic update
-        const port = ports.value.find(p => p.id === portId);
-        if (port) {
-            port.isOn = currentState;
-        }
-        alert('Failed to toggle port. Please try again.');
-    }
+const handleDeviceSettings = (deviceId) => {
+    console.log('Open settings for device:', deviceId);
 };
 
-// Start polling for real-time updates
-const startPolling = () => {
-    pollingInterval = setInterval(() => {
-        fetchDashboardData();
-    }, POLL_INTERVAL);
-};
-
-// Stop polling
-const stopPolling = () => {
-    if (pollingInterval) {
-        clearInterval(pollingInterval);
-        pollingInterval = null;
-    }
-};
-
-// Lifecycle hooks
-onMounted(() => {
-    fetchDashboardData();
-    startPolling();
-});
-
-onUnmounted(() => {
-    stopPolling();
-});
 </script>
 
 <template>
     <Head title="Dashboard" />
 
-    <div class="min-h-screen bg-slate-100">
-        <div class="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+    <div class="flex min-h-screen bg-slate-900">
+        <!-- Sidebar Component -->
+        <Sidebar />
+        
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto ml-16">
+            <div class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-1">
             <header
-                class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+                class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
             >
                 <div>
-                    <h1 class="text-2xl font-semibold text-slate-900">
-                        WattWise
+                    <h1 class="text-3xl font-bold text-white">
+                        Dashboard
                     </h1>
                     <p class="text-sm text-slate-500">
-                        Smart Energy Monitoring
+                        Monitor your energy consumption in real-time
                     </p>
                 </div>
                 <div class="flex items-center gap-3">
@@ -237,31 +152,12 @@ onUnmounted(() => {
                             class="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500"
                         ></span>
                     </button>
-                    <Link
-                        method="post"
-                        as="button"
-                        :href="route('logout')"
-                        class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-                    >
-                        <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            class="h-4 w-4"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"
-                            />
-                        </svg>
-                        Logout
-                    </Link>
                 </div>
             </header>
 
-            <section class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            
+
+            <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <SummaryCard
                     v-for="card in summaryCards"
                     :key="card.id"
@@ -342,6 +238,27 @@ onUnmounted(() => {
                 />
             </section>
 
+            <!-- Device Cards Section -->
+            <section class="mt-6">
+                <h2 class="text-xl font-semibold text-white mb-4">Plug </h2>
+                <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                    <DeviceCard
+                        v-for="device in devices"
+                        :key="device.id"
+                        :name="device.name"
+                        :status="device.status"
+                        :current-power="device.currentPower"
+                        :threshold-limit="device.thresholdLimit"
+                        :today-usage="device.todayUsage"
+                        :is-on="device.isOn"
+                        @update:is-on="(newState) => handleDeviceToggle(device.id, newState)"
+                        @settings="() => handleDeviceSettings(device.id)"
+                    />
+                </div>
+            </section>
+            <br>
+
+             <EnergyGraph />
             <section
                 class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3"
             >
@@ -352,7 +269,7 @@ onUnmounted(() => {
                     <p class="text-red-500">{{ error }}</p>
                     <button
                         @click="fetchDashboardData"
-                        class="mt-4 px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700"
+                        class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                     >
                         Retry
                     </button>
@@ -372,6 +289,9 @@ onUnmounted(() => {
                     :status-tone="port.statusTone"
                 />
             </section>
+
+            
+            </div>
         </div>
     </div>
 </template>
