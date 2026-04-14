@@ -17,6 +17,34 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Firebase Real-time Database Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configure Firebase Realtime Database for ESP32 communication.
+    | Your ESP32 devices write to and read from Firebase in real-time.
+    |
+    */
+
+    'firebase' => [
+        'database_url' => env('FIREBASE_DATABASE_URL', 'https://wattwise-1d764-default-rtdb.firebaseio.com'),
+        'api_key' => env('FIREBASE_API_KEY', null),
+        'verify_ssl' => env('FIREBASE_VERIFY_SSL'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Electricity Rate Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configure the electricity rate for cost calculations.
+    | Default rate is in PHP per kWh.
+    |
+    */
+
+    'electricity_rate' => env('ELECTRICITY_RATE', 12.5),
+
+    /*
+    |--------------------------------------------------------------------------
     | API Endpoints
     |--------------------------------------------------------------------------
     |

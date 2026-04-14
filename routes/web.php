@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\BackupController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -16,10 +17,25 @@ Route::get('/dashboard', function () {
     return Inertia::render('Dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
 
+Route::get('/device/{id}/settings', function ($id) {
+    // Mock device data - replace with actual database query
+    $devices = [
+        1 => ['id' => 1, 'name' => 'Plug 1'],
+        2 => ['id' => 2, 'name' => 'Plug 2'],
+        3 => ['id' => 3, 'name' => 'Plug 3'],
+    ];
+    
+    $device = $devices[$id] ?? ['id' => $id, 'name' => 'Plug ' . $id];
+    
+    return Inertia::render('DeviceSettings', [
+        'device' => $device
+    ]);
+})->middleware(['auth', 'verified'])->name('device.settings');
+
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    Route::get('/profile/backup', [BackupController::class, 'download'])->name('profile.backup');
 });
 
 Route::get('/devices', function () {
@@ -33,10 +49,8 @@ Route::get('/devices', function () {
             'daily_usage' => 24.5,
             'monthly_cost' => 45.80,
             'uptime' => '15d 3h',
-            'category' => 'Plug 1',
-            'voltage_threshold' => 230,
-            'current_threshold' => 10,
-            'power_threshold' => 1500
+            'daily_limit' => 30.0,
+            'category' => 'Plug 1'
         ],
         [
             'id' => 2,
@@ -46,25 +60,9 @@ Route::get('/devices', function () {
             'daily_usage' => 18.2,
             'monthly_cost' => 72.50,
             'uptime' => '5d 12h',
-            'category' => 'Plug 2',
-            'voltage_threshold' => 240,
-            'current_threshold' => 15,
-            'power_threshold' => 3000
-        ],
-        [
-            'id' => 3,
-            'name' => 'Water Heater',
-            'status' => 'standby',
-            'power' => 0.8,
-            'daily_usage' => 8.4,
-            'monthly_cost' => 28.30,
-            'uptime' => '30d 8h',
-            'category' => 'Plug 3',
-            'voltage_threshold' => 230,
-            'current_threshold' => 20,
-            'power_threshold' => 4000
+            'daily_limit' => 25.0,
+            'category' => 'Plug 2'
         ]
-
     ];
     
     return Inertia::render('Devices', [
@@ -73,7 +71,31 @@ Route::get('/devices', function () {
 })->middleware(['auth', 'verified'])->name('devices');
 
 Route::get('/notifications', function () {
-    return Inertia::render('Notifications');
+    $notifications = [];
+    if (auth()->check()) {
+        $notifications = auth()->user()->notifications()->orderBy('created_at', 'desc')->get()->map(function($n) {
+            return [
+                'id' => $n->id,
+                'type' => $n->data['type'] ?? 'info',
+                'severity' => $n->data['severity'] ?? 'info',
+                'title' => $n->data['title'] ?? 'Notification',
+                'message' => $n->data['message'] ?? '',
+                'device' => $n->data['device_name'] ?? null,
+                'time' => $n->created_at->diffForHumans(),
+                'timestamp' => $n->created_at,
+                'read' => !is_null($n->read_at),
+                'action' => $n->data['action'] ?? null,
+            ];
+        });
+    }
+
+    return Inertia::render('Notifications', [
+        'initialNotifications' => $notifications
+    ]);
 })->middleware(['auth', 'verified'])->name('notifications');
+
+Route::get('/definitions', function () {
+    return Inertia::render('Definitions');
+})->middleware(['auth', 'verified'])->name('definitions');
 
 require __DIR__.'/auth.php';

@@ -3,23 +3,76 @@ import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
 import TextInput from '@/Components/TextInput.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
+import { getApp, getApps, initializeApp } from 'firebase/app';
+import { createUserWithEmailAndPassword, getAuth } from 'firebase/auth';
+import { getDatabase, ref as dbRef, update } from 'firebase/database';
 import { User, Mail, Lock, Zap, Eye, EyeOff, Check, X } from 'lucide-vue-next';
 import { ref, computed } from 'vue';
+import vueRecaptcha from 'vue3-recaptcha2';
 
 const showPassword = ref(false);
 const showConfirmPassword = ref(false);
+const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';
+
+const firebaseConfig = {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+};
+
+const getFirebaseAuthClient = () => {
+    const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+    return getAuth(app);
+};
+
+const getFirebaseDbClient = () => {
+    const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+    return getDatabase(app);
+};
 
 const form = useForm({
     name: '',
     email: '',
+    deviceId: '',
     password: '',
     password_confirmation: '',
+    g_recaptcha_response: '',
 });
 
-const submit = () => {
-    form.post(route('register'), {
-        onFinish: () => form.reset('password', 'password_confirmation'),
-    });
+const handleRecaptcha = (response) => {
+    form.g_recaptcha_response = response;
+};
+
+const submit = async () => {
+    try {
+        const auth = getFirebaseAuthClient();
+        const credential = await createUserWithEmailAndPassword(auth, form.email, form.password);
+        const uid = credential.user.uid;
+
+        form.post(route('register'), {
+            onSuccess: async () => {
+                const db = getFirebaseDbClient();
+
+                await update(dbRef(db, `devices/${form.deviceId}`), {
+                    owner: uid,
+                    status: 'linked',
+                });
+
+                await update(dbRef(db, `users/${uid}/devices`), {
+                    [form.deviceId]: true,
+                });
+            },
+            onFinish: () => form.reset('password', 'password_confirmation'),
+        });
+
+        return uid;
+    } catch (error) {
+        form.setError('email', error?.message || 'Unable to sign up with Firebase.');
+        return null;
+    }
 };
 
 // Password strength checker
@@ -61,25 +114,37 @@ const passwordRequirements = computed(() => [
 <template>
     <Head title="Register" />
 
-    <div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center px-4 py-12 sm:px-6 lg:px-8 relative overflow-hidden">
-        <!-- Animated Background Elements -->
-        <div class="absolute inset-0 overflow-hidden pointer-events-none">
-            <div class="absolute top-20 left-10 w-72 h-72 bg-cyan-500/10 rounded-full blur-3xl animate-pulse"></div>
-            <div class="absolute bottom-20 right-10 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style="animation-delay: 2s;"></div>
-            <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-cyan-500/5 rounded-full blur-3xl"></div>
+    <div class="relative min-h-screen overflow-hidden bg-slate-950 px-4 py-8 sm:px-6 lg:px-10">
+        <div class="pointer-events-none absolute inset-0">
+            <div class="absolute inset-0 bg-[radial-gradient(circle_at_15%_15%,rgba(34,211,238,0.2),transparent_42%),radial-gradient(circle_at_85%_5%,rgba(59,130,246,0.16),transparent_40%),linear-gradient(180deg,#020617_0%,#0f172a_100%)]"></div>
+            <div class="absolute inset-0 opacity-20" style="background-image:linear-gradient(rgba(148,163,184,0.18)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.18)_1px,transparent_1px);background-size:36px 36px;"></div>
         </div>
 
-        <div class="w-full max-w-md relative z-10">
-            <!-- Header -->
-            <div class="text-center mb-8">
-                <h1 class="text-4xl font-bold text-white mb-2">WattWise</h1>
-                <p class="text-cyan-400 text-sm font-medium">Smart Energy Monitoring</p>
-            </div>
+        <div class="relative z-10 mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+            <section class="hidden rounded-3xl border border-cyan-300/15 bg-gradient-to-br from-cyan-500/16 via-blue-500/10 to-cyan-400/12 p-10 shadow-2xl backdrop-blur-md lg:block">
+                <p class="mb-6 inline-flex items-center rounded-full border border-cyan-200/25 bg-cyan-300/10 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">Account Setup</p>
+                <h1 class="max-w-xl text-4xl font-bold leading-tight text-white">Create your WattWise workspace.</h1>
+                <p class="mt-4 max-w-lg text-base leading-relaxed text-slate-200/95">Set up your account, verify your device identity, and activate secure real-time monitoring in minutes.</p>
+                <div class="mt-6 h-px w-full max-w-xl bg-gradient-to-r from-cyan-200/40 via-slate-200/20 to-transparent"></div>
+                <div class="mt-7 grid max-w-xl grid-cols-2 gap-3">
+                    <div class="rounded-xl border border-slate-200/20 bg-slate-900/30 p-4">
+                        <p class="text-[11px] uppercase tracking-[0.16em] text-slate-300">Provisioning</p>
+                        <p class="mt-1 text-2xl font-semibold text-white">Guided</p>
+                    </div>
+                    <div class="rounded-xl border border-slate-200/20 bg-slate-900/30 p-4">
+                        <p class="text-[11px] uppercase tracking-[0.16em] text-slate-300">Device Security</p>
+                        <p class="mt-1 text-2xl font-semibold text-white">Verified</p>
+                    </div>
+                </div>
+            </section>
 
-            <!-- Card -->
-            <div class="bg-slate-800/80 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-700/50 p-8">
-                <h2 class="text-2xl font-bold text-white mb-2">Create your account</h2>
-                <p class="text-gray-400 text-sm mb-6">Start monitoring your energy consumption</p>
+            <section class="w-full">
+            <div class="mx-auto w-full max-w-xl rounded-3xl border border-slate-700/70 bg-slate-900/85 p-8 shadow-[0_24px_90px_rgba(2,6,23,0.65)] backdrop-blur-xl sm:p-9">
+                <div class="mb-6">
+                    <p class="mb-3 inline-flex items-center rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">Register</p>
+                    <h2 class="text-3xl font-bold text-white">Create your account</h2>
+                    <p class="mt-2 text-sm text-slate-300">Complete registration to connect and monitor your devices.</p>
+                </div>
 
                 <form @submit.prevent="submit" class="space-y-5">
                     <div>
@@ -92,7 +157,7 @@ const passwordRequirements = computed(() => [
                             <TextInput
                                 id="name"
                                 type="text"
-                                class="block w-full pl-10 rounded-lg border-slate-600 bg-slate-700/50 text-white placeholder-gray-400 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-700 transition-all"
+                                class="block w-full rounded-xl border-slate-600/80 bg-slate-800/60 pl-10 text-white placeholder-slate-400 shadow-sm transition-all focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-800"
                                 v-model="form.name"
                                 required
                                 autofocus
@@ -114,7 +179,7 @@ const passwordRequirements = computed(() => [
                             <TextInput
                                 id="email"
                                 type="email"
-                                class="block w-full pl-10 rounded-lg border-slate-600 bg-slate-700/50 text-white placeholder-gray-400 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-700 transition-all"
+                                class="block w-full rounded-xl border-slate-600/80 bg-slate-800/60 pl-10 text-white placeholder-slate-400 shadow-sm transition-all focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-800"
                                 v-model="form.email"
                                 required
                                 autocomplete="username"
@@ -123,6 +188,27 @@ const passwordRequirements = computed(() => [
                         </div>
 
                         <InputError class="mt-2" :message="form.errors.email" />
+                    </div>
+
+                    <div>
+                        <InputLabel for="deviceId" value="Device ID" class="text-gray-300 font-medium" />
+
+                        <div class="relative mt-2">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <Zap class="h-5 w-5 text-gray-400" />
+                            </div>
+                            <TextInput
+                                id="deviceId"
+                                type="text"
+                                class="block w-full rounded-xl border-slate-600/80 bg-slate-800/60 pl-10 text-white placeholder-slate-400 shadow-sm transition-all focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-800"
+                                v-model="form.deviceId"
+                                required
+                                autocomplete="off"
+                                placeholder="Enter your device ID"
+                            />
+                        </div>
+
+                        <InputError class="mt-2" :message="form.errors.deviceId" />
                     </div>
 
                     <div>
@@ -135,7 +221,7 @@ const passwordRequirements = computed(() => [
                             <TextInput
                                 id="password"
                                 :type="showPassword ? 'text' : 'password'"
-                                class="block w-full pl-10 pr-10 rounded-lg border-slate-600 bg-slate-700/50 text-white placeholder-gray-400 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-700 transition-all"
+                                class="block w-full rounded-xl border-slate-600/80 bg-slate-800/60 pl-10 pr-10 text-white placeholder-slate-400 shadow-sm transition-all focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-800"
                                 v-model="form.password"
                                 required
                                 autocomplete="new-password"
@@ -203,7 +289,7 @@ const passwordRequirements = computed(() => [
                             <TextInput
                                 id="password_confirmation"
                                 :type="showConfirmPassword ? 'text' : 'password'"
-                                class="block w-full pl-10 pr-10 rounded-lg border-slate-600 bg-slate-700/50 text-white placeholder-gray-400 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-700 transition-all"
+                                class="block w-full rounded-xl border-slate-600/80 bg-slate-800/60 pl-10 pr-10 text-white placeholder-slate-400 shadow-sm transition-all focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-800"
                                 v-model="form.password_confirmation"
                                 required
                                 autocomplete="new-password"
@@ -225,11 +311,21 @@ const passwordRequirements = computed(() => [
                         />
                     </div>
 
+                    <div class="flex justify-center mt-4">
+                        <vue-recaptcha 
+                            :sitekey="siteKey"
+                            size="normal" 
+                            theme="dark"
+                            @verify="handleRecaptcha" 
+                        />
+                        <InputError class="mt-2" :message="form.errors.g_recaptcha_response" />
+                    </div>
+
                     <button
                         type="submit"
                         :disabled="form.processing"
                         :class="[
-                            'w-full flex justify-center items-center px-4 py-3 border border-transparent rounded-lg shadow-lg text-base font-semibold text-white bg-blue-600 ',
+                            'w-full flex justify-center items-center px-4 py-3 border border-cyan-500/20 rounded-xl shadow-lg shadow-cyan-900/20 text-base font-semibold text-white bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500',
                             { 'opacity-50 cursor-not-allowed': form.processing }
                         ]"
                     >
@@ -248,18 +344,16 @@ const passwordRequirements = computed(() => [
                         Already have an account?
                         <Link
                             :href="route('login')"
-                            class="font-semibold text-cyan-400 hover:text-cyan-300 transition-colors ml-1"
+                            class="font-semibold text-cyan-300 hover:text-cyan-200 transition-colors ml-1"
                         >
                             Sign in
                         </Link>
                     </p>
                 </div>
-            </div>
 
-            <!-- Footer -->
-            <p class="mt-8 text-center text-sm text-gray-400">
-                © 2026 WattWise. Monitor your energy, save the planet.
-            </p>
+                <p class="mt-6 text-center text-xs text-slate-400">© 2026 WattWise. Monitor your energy, save the planet.</p>
+            </div>
+            </section>
         </div>
     </div>
 </template>

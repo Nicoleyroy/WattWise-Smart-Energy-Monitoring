@@ -6,8 +6,10 @@ import TextInput from '@/Components/TextInput.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import { Mail, Lock, Zap, Eye, EyeOff } from 'lucide-vue-next';
 import { ref } from 'vue';
+import vueRecaptcha from 'vue3-recaptcha2';
 
 const showPassword = ref(false);
+const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';
 
 defineProps({
     canResetPassword: {
@@ -22,7 +24,12 @@ const form = useForm({
     email: '',
     password: '',
     remember: false,
+    g_recaptcha_response: '',
 });
+
+const handleRecaptcha = (response) => {
+    form.g_recaptcha_response = response;
+};
 
 const submit = () => {
     form.post(route('login'), {
@@ -34,26 +41,37 @@ const submit = () => {
 <template>
     <Head title="Log in" />
 
-    <div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center px-4 py-12 sm:px-6 lg:px-8 relative overflow-hidden">
-        <!-- Animated Background Elements -->
-        <div class="absolute inset-0 overflow-hidden pointer-events-none">
-            <div class="absolute top-20 left-10 w-72 h-72 bg-cyan-500/10 rounded-full blur-3xl animate-pulse"></div>
-            <div class="absolute bottom-20 right-10 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style="animation-delay: 2s;"></div>
-            <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-cyan-500/5 rounded-full blur-3xl"></div>
+    <div class="relative min-h-screen overflow-hidden bg-slate-950 px-4 py-8 sm:px-6 lg:px-10">
+        <div class="pointer-events-none absolute inset-0">
+            <div class="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(34,211,238,0.2),transparent_42%),radial-gradient(circle_at_80%_0%,rgba(59,130,246,0.16),transparent_40%),linear-gradient(180deg,#020617_0%,#0f172a_100%)]"></div>
+            <div class="absolute inset-0 opacity-20" style="background-image:linear-gradient(rgba(148,163,184,0.18)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.18)_1px,transparent_1px);background-size:36px 36px;"></div>
         </div>
 
-        <div class="w-full max-w-md relative z-10">
-            <!-- Header -->
-            <div class="text-center mb-8">
-                
-                <h1 class="text-4xl font-bold text-white mb-2">WattWise</h1>
-                <p class="text-cyan-400 text-sm font-medium">Smart Energy Monitoring</p>
-            </div>
+        <div class="relative z-10 mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center gap-8 lg:grid-cols-[1.15fr_0.85fr]">
+            <section class="hidden rounded-3xl border border-cyan-300/15 bg-gradient-to-br from-cyan-500/16 via-blue-500/10 to-cyan-400/12 p-10 shadow-2xl backdrop-blur-md lg:block">
+                <p class="mb-6 inline-flex items-center rounded-full border border-cyan-200/25 bg-cyan-300/10 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">Operations Overview</p>
+                <h1 class="max-w-xl text-4xl font-bold leading-tight text-white">Access your WattWise control center.</h1>
+                <p class="mt-4 max-w-lg text-base leading-relaxed text-slate-200/95">Track connected devices, review real-time energy performance, and respond to anomalies with confidence.</p>
+                <div class="mt-6 h-px w-full max-w-xl bg-gradient-to-r from-cyan-200/40 via-slate-200/20 to-transparent"></div>
+                <div class="mt-7 grid max-w-xl grid-cols-2 gap-3">
+                    <div class="rounded-xl border border-slate-200/20 bg-slate-900/30 p-4">
+                        <p class="text-[11px] uppercase tracking-[0.16em] text-slate-300">System Availability</p>
+                        <p class="mt-1 text-2xl font-semibold text-white">99.9%</p>
+                    </div>
+                    <div class="rounded-xl border border-slate-200/20 bg-slate-900/30 p-4">
+                        <p class="text-[11px] uppercase tracking-[0.16em] text-slate-300">Alert Latency</p>
+                        <p class="mt-1 text-2xl font-semibold text-white">&lt; 5s</p>
+                    </div>
+                </div>
+            </section>
 
-            <!-- Card -->
-            <div class="bg-slate-800/80 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-700/50 p-8">
-                <h2 class="text-2xl font-bold text-white mb-2">Welcome back</h2>
-                <p class="text-gray-400 text-sm mb-6">Sign in to continue to your dashboard</p>
+            <section class="w-full">
+                <div class="mx-auto w-full max-w-lg rounded-3xl border border-slate-700/70 bg-slate-900/85 p-8 shadow-[0_24px_90px_rgba(2,6,23,0.65)] backdrop-blur-xl sm:p-9">
+                    <div class="mb-6">
+                        <p class="mb-3 inline-flex items-center rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">Sign In</p>
+                        <h2 class="text-3xl font-bold text-white">Sign in to your account</h2>
+                        <p class="mt-2 text-sm text-slate-300">Continue to your WattWise monitoring workspace.</p>
+                    </div>
 
                 <div v-if="status" class="mb-6 p-4 rounded-xl bg-green-500/20 border border-green-500/30 text-sm font-medium text-green-400 flex items-center gap-3">
                     <svg class="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -73,7 +91,7 @@ const submit = () => {
                             <TextInput
                                 id="email"
                                 type="email"
-                                class="block w-full pl-10 rounded-lg border-slate-600 bg-slate-700/50 text-white placeholder-gray-400 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-700 transition-all"
+                                class="block w-full rounded-xl border-slate-600/80 bg-slate-800/60 pl-10 text-white placeholder-slate-400 shadow-sm transition-all focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-800"
                                 v-model="form.email"
                                 required
                                 autofocus
@@ -95,7 +113,7 @@ const submit = () => {
                             <TextInput
                                 id="password"
                                 :type="showPassword ? 'text' : 'password'"
-                                class="block w-full pl-10 pr-10 rounded-lg border-slate-600 bg-slate-700/50 text-white placeholder-gray-400 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-700 transition-all"
+                                class="block w-full rounded-xl border-slate-600/80 bg-slate-800/60 pl-10 pr-10 text-white placeholder-slate-400 shadow-sm transition-all focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-800"
                                 v-model="form.password"
                                 required
                                 autocomplete="current-password"
@@ -123,17 +141,27 @@ const submit = () => {
                         <Link
                             v-if="canResetPassword"
                             :href="route('password.request')"
-                            class="text-sm font-medium text-cyan-400 hover:text-cyan-300 transition-colors"
+                            class="text-sm font-medium text-cyan-300 hover:text-cyan-200 transition-colors"
                         >
                             Forgot password?
                         </Link>
+                    </div>
+
+                    <div class="flex justify-center mt-4">
+                        <vue-recaptcha 
+                            :sitekey="siteKey"
+                            size="normal" 
+                            theme="dark"
+                            @verify="handleRecaptcha" 
+                        />
+                        <InputError class="mt-2" :message="form.errors.g_recaptcha_response" />
                     </div>
 
                     <button
                         type="submit"
                         :disabled="form.processing"
                         :class="[
-                            'w-full flex justify-center items-center px-4 py-3 border border-transparent rounded-lg shadow-lg text-base font-semibold text-white bg-blue-600 ',
+                            'w-full flex justify-center items-center px-4 py-3 border border-cyan-500/20 rounded-xl shadow-lg shadow-cyan-900/20 text-base font-semibold text-white bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500',
                             { 'opacity-50 cursor-not-allowed': form.processing }
                         ]"
                     >
@@ -152,18 +180,16 @@ const submit = () => {
                         Don't have an account?
                         <Link
                             :href="route('register')"
-                            class="font-semibold text-cyan-400 hover:text-cyan-300 transition-colors ml-1"
+                            class="font-semibold text-cyan-300 hover:text-cyan-200 transition-colors ml-1"
                         >
                             Create an account
                         </Link>
                     </p>
                 </div>
-            </div>
 
-            <!-- Footer -->
-            <p class="mt-8 text-center text-sm text-gray-400">
-                © 2026 WattWise. Monitor your energy, save the planet.
-            </p>
+                <p class="mt-6 text-center text-xs text-slate-400">© 2026 WattWise. Monitor your energy, save the planet.</p>
+            </div>
+            </section>
         </div>
     </div>
 </template>

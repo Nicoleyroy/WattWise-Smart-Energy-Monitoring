@@ -29,6 +29,7 @@ class LoginRequest extends FormRequest
         return [
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
+            'g_recaptcha_response' => ['required', new \App\Rules\RecaptchaV2()],
         ];
     }
 

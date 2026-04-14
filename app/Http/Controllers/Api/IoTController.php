@@ -7,9 +7,17 @@ use App\Models\EnergyReading;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use App\Services\FirebaseService;
+
 
 class IoTController extends Controller
 {
+    protected FirebaseService $firebaseService;
+
+    public function __construct(FirebaseService $firebaseService)
+    {
+        $this->firebaseService = $firebaseService;
+    }
     /**
      * Receive energy data from ESP32
      * 
@@ -73,6 +81,7 @@ class IoTController extends Controller
                 'device_id' => $reading->device_id
             ]);
 
+
             return response()->json([
                 'success' => true,
                 'message' => 'Energy reading stored successfully',
@@ -93,6 +102,60 @@ class IoTController extends Controller
                 'message' => 'Failed to store energy reading'
             ], 500);
         }
+    }
+
+    /**
+     * Get historical energy readings for charts (sampled)
+     */
+    public function getHistory(Request $request)
+    {
+        $deviceId = $request->input('device_id');
+        $hours = (int) $request->input('hours', 1);
+
+        // Ensure we handle both numeric IDs or PLUG1 format
+        $deviceIdPatterns = [$deviceId];
+        if (is_numeric($deviceId)) {
+            $deviceIdPatterns[] = "PLUG{$deviceId}";
+        } elseif (preg_match('/PLUG(\d+)/', $deviceId, $matches)) {
+            $deviceIdPatterns[] = $matches[1];
+        }
+
+        $query = EnergyReading::query()
+            ->whereIn('device_id', $deviceIdPatterns)
+            ->where('created_at', '>=', now()->subHours($hours))
+            ->orderBy('created_at', 'asc');
+
+        $readings = $query->get();
+
+        // Sample data to max 60 points for the chart to keep it performant
+        if ($readings->count() > 60) {
+            $count = $readings->count();
+            $step = floor($count / 60);
+            $sampled = [];
+            for ($i = 0; $i < $count; $i += $step) {
+                $sampled[] = $readings[$i];
+                if (count($sampled) >= 60) break;
+            }
+            $readings = collect($sampled);
+        }
+
+        return response()->json([
+            'success' => true,
+            'count' => $readings->count(),
+            'period_hours' => $hours,
+            'data' => $readings->map(function($r) {
+                return [
+                    'voltage' => (float)$r->voltage,
+                    'current' => (float)$r->current,
+                    'power'   => (float)$r->power,
+                    'energy'  => (float)$r->energy,
+                    'frequency' => (float)$r->frequency,
+                    'pf'      => (float)$r->power_factor,
+                    'timestamp' => $r->created_at->format('H:i:s'),
+                    'full_timestamp' => $r->created_at->toIso8601String(),
+                ];
+            })
+        ]);
     }
 
     /**
@@ -149,5 +212,32 @@ class IoTController extends Controller
             'period_hours' => $hours,
             'data' => $stats
         ]);
+    }
+
+    /**
+     * Mark notification as read
+     */
+    public function markAsRead(Request $request, $id)
+    {
+        $request->user()->notifications()->where('id', $id)->update(['read_at' => now()]);
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Mark all notifications as read
+     */
+    public function markAllAsRead(Request $request)
+    {
+        $request->user()->unreadNotifications->markAsRead();
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Delete notification
+     */
+    public function deleteNotification(Request $request, $id)
+    {
+        $request->user()->notifications()->where('id', $id)->delete();
+        return response()->json(['success' => true]);
     }
 }

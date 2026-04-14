@@ -30,7 +30,9 @@
     },
     "dependencies": {
         "apexcharts": "^5.4.0",
+        "firebase": "^12.9.0",
         "lucide-vue-next": "^0.564.0",
-        "vue3-apexcharts": "^1.10.0"
+        "vue3-apexcharts": "^1.10.0",
+        "vue3-recaptcha2": "^1.8.0"
     }
 }

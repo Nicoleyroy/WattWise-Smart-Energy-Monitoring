@@ -17,7 +17,7 @@ class DashboardController extends Controller
     }
 
     /**
-     * Get all dashboard data (summary cards, ports, alerts)
+     * Get all dashboard data
      */
     public function getDashboardData(): JsonResponse
     {
@@ -25,7 +25,6 @@ class DashboardController extends Controller
             $data = [
                 'summary' => $this->iotService->getSummaryData(),
                 'ports' => $this->iotService->getAllPorts(),
-                'alerts' => $this->iotService->getAlerts(),
             ];
 
             return response()->json($data);
@@ -38,139 +37,102 @@ class DashboardController extends Controller
     }
 
     /**
-     * Get all ports/devices
-     */
-    public function getPorts(): JsonResponse
-    {
-        try {
-            $ports = $this->iotService->getAllPorts();
-            return response()->json($ports);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Failed to fetch ports',
-                'message' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
      * Toggle port ON/OFF
      */
     public function togglePort(Request $request, int $portId): JsonResponse
     {
+        $request->validate(['state' => 'required|boolean']);
+
+        try {
+            $success = $this->iotService->togglePort($portId, $request->boolean('state'));
+            return response()->json(['success' => $success]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+      * Set daily energy limit for a device. The route name is kept for
+     * compatibility, but the value is now kWh, not Watts.
+    
+     */
+    public function setThreshold(Request $request, int $deviceId): JsonResponse
+    {
+     
         $request->validate([
-            'state' => 'required|boolean',
+            'daily_limit' => 'nullable|numeric|min:0',
+            'threshold_value' => 'nullable|numeric|min:0',
+            'threshold_type' => 'nullable|in:daily,weekly,monthly',
+            'threshold' => 'nullable|numeric|min:0',
         ]);
 
+        $dailyLimit = $request->input('threshold_value', $request->input('daily_limit', $request->input('threshold')));
+        $thresholdType = $request->input('threshold_type', 'daily');
+
+        if ($dailyLimit === null) {
+            return response()->json(['error' => 'threshold_value is required'], 422);
+        }
+
         try {
-            $result = $this->iotService->togglePort($portId, $request->boolean('state'));
-            
+            $success = $this->iotService->setThreshold($deviceId, (float) $dailyLimit, (string) $thresholdType);
             return response()->json([
-                'success' => true,
-                'port' => $result,
+                'success' => $success,
+                'threshold_value' => (float) $dailyLimit,
+                'threshold_type' => (string) $thresholdType,
+                // Backward compatibility
+                'daily_limit' => (float) $dailyLimit,
             ]);
         } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Failed to toggle port',
-                'message' => $e->getMessage(),
-            ], 500);
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 
-    /**
-     * Get specific port status
-     */
-    public function getPortStatus(int $portId): JsonResponse
+    public function getDeviceThreshold(int $deviceId): JsonResponse
     {
         try {
-            $port = $this->iotService->getPortStatus($portId);
-            return response()->json($port);
+            $config = $this->iotService->getThresholdConfig($deviceId);
+           return response()->json([
+                'threshold_value' => (float) ($config['threshold_value'] ?? 0),
+                'threshold_type' => (string) ($config['threshold_type'] ?? 'daily'),
+                // Backward compatibility
+                'daily_limit' => (float) ($config['threshold_value'] ?? 0),
+                'threshold' => (float) ($config['threshold_value'] ?? 0),
+            ]);
         } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Failed to fetch port status',
-                'message' => $e->getMessage(),
-            ], 500);
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 
-    /**
-     * Get current total power consumption
-     */
-    public function getCurrentPower(): JsonResponse
-    {
-        try {
-            $power = $this->iotService->getCurrentPower();
-            return response()->json(['power' => $power]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Failed to fetch current power',
-                'message' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Get today's energy usage
-     */
-    public function getTodayUsage(): JsonResponse
-    {
-        try {
-            $usage = $this->iotService->getTodayUsage();
-            return response()->json(['usage' => $usage]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Failed to fetch today usage',
-                'message' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Get maintenance alerts
-     */
-    public function getAlerts(): JsonResponse
-    {
-        try {
-            $alerts = $this->iotService->getAlerts();
-            return response()->json($alerts);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Failed to fetch alerts',
-                'message' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Get monthly energy records
-     */
-    public function getMonthlyRecords(): JsonResponse
-    {
-        try {
-            $records = $this->iotService->getMonthlyRecords();
-            return response()->json($records);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Failed to fetch monthly records',
-                'message' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Get active thresholds
-     */
     public function getThresholds(): JsonResponse
     {
         try {
-            $thresholds = $this->iotService->getThresholds();
-            return response()->json($thresholds);
+              return response()->json($this->iotService->getAllDailyLimits());
         } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function setDeviceName(Request $request, int $deviceId): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|min:1|max:80',
+        ]);
+
+        try {
+            $name = trim((string) $validated['name']);
+            $success = $this->iotService->setDeviceName($deviceId, $name);
+
+            if (!$success) {
+                return response()->json(['message' => 'Failed to update device name'], 500);
+            }
+
             return response()->json([
-                'error' => 'Failed to fetch thresholds',
-                'message' => $e->getMessage(),
-            ], 500);
+                'success' => true,
+                'device_id' => $deviceId,
+                'name' => $name,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 }
-
