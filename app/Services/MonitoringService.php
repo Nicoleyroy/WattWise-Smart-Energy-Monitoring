@@ -10,6 +10,7 @@ use App\Events\DeviceTurnedOff;
 use App\Events\DeviceOffline;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Carbon;
 
 class MonitoringService
 {
@@ -41,15 +42,111 @@ class MonitoringService
 
                 $deviceId = (int)$matches[1];
                 $plug = $plugData["plug{$deviceId}"] ?? [];
-                 $energy = $energyData["PLUG{$deviceId}"] ?? [];
-                
-                 $this->checkThresholdLimit($deviceId, $plug, $energy);
+                $energy = $energyData["PLUG{$deviceId}"] ?? [];
+
+                $energy = $this->syncEnergyUsage($deviceId, $data, $plug, $energy);
+                $this->checkThresholdLimit($deviceId, $plug, $energy);
                 $this->checkAnomalies($deviceId, $data);
                 $this->checkConnectivity($deviceId, $data);
-           }
+            }
         } catch (\Exception $e) {
             Log::error("Monitoring Service Error: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Convert cumulative meter energy into period counters used by the app.
+     */
+    protected function syncEnergyUsage(int $deviceId, array $live, array $plug, array $energy): array
+    {
+        $rawTotal = $live['energy'] ?? null;
+        if (!is_numeric($rawTotal)) {
+            return $energy;
+        }
+
+        $currentTotalKwh = (float) $rawTotal;
+        if ($currentTotalKwh < 0) {
+            return $energy;
+        }
+
+        $prevRaw = $plug['meter_total_kwh'] ?? $energy['meter_total_kwh'] ?? null;
+        $prevTotalKwh = is_numeric($prevRaw) ? (float) $prevRaw : null;
+
+        $deltaKwh = 0.0;
+        if ($prevTotalKwh !== null) {
+            $deltaKwh = $currentTotalKwh - $prevTotalKwh;
+
+            // Ignore impossible jumps and meter rollbacks.
+            if ($deltaKwh < 0 || $deltaKwh > 5) {
+                $deltaKwh = 0.0;
+            }
+        }
+
+        $daily = (float) ($energy['daily_kwh'] ?? $plug['daily_kwh'] ?? 0);
+        $weekly = (float) ($energy['weekly_kwh'] ?? $plug['weekly_kwh'] ?? 0);
+        $monthly = (float) ($energy['monthly_kwh'] ?? $plug['monthly_kwh'] ?? 0);
+
+        $now = Carbon::now();
+        $currentDayKey = $now->toDateString();
+        $currentWeekKey = $now->format('o-W');
+        $currentMonthKey = $now->format('Y-m');
+
+        $savedDayKey = (string) ($energy['daily_key'] ?? $plug['daily_key'] ?? '');
+        $savedWeekKey = (string) ($energy['weekly_key'] ?? $plug['weekly_key'] ?? '');
+        $savedMonthKey = (string) ($energy['monthly_key'] ?? $plug['monthly_key'] ?? '');
+
+        if ($savedDayKey !== $currentDayKey) {
+            $daily = 0.0;
+        }
+
+        if ($savedWeekKey !== $currentWeekKey) {
+            $weekly = 0.0;
+        }
+
+        if ($savedMonthKey !== $currentMonthKey) {
+            $monthly = 0.0;
+        }
+
+        if ($deltaKwh > 0) {
+            $daily += $deltaKwh;
+            $weekly += $deltaKwh;
+            $monthly += $deltaKwh;
+        }
+
+        $currentPower = is_numeric($live['power'] ?? null)
+            ? (float) $live['power']
+            : (float) ($plug['current_power'] ?? 0);
+
+        $timestamp = time();
+        $updates = [
+            "Energy/PLUG{$deviceId}/meter_total_kwh" => $currentTotalKwh,
+            "Energy/PLUG{$deviceId}/daily_kwh" => $daily,
+            "Energy/PLUG{$deviceId}/weekly_kwh" => $weekly,
+            "Energy/PLUG{$deviceId}/monthly_kwh" => $monthly,
+            "Energy/PLUG{$deviceId}/daily_key" => $currentDayKey,
+            "Energy/PLUG{$deviceId}/weekly_key" => $currentWeekKey,
+            "Energy/PLUG{$deviceId}/monthly_key" => $currentMonthKey,
+            "plugs/plug{$deviceId}/meter_total_kwh" => $currentTotalKwh,
+            "plugs/plug{$deviceId}/daily_kwh" => $daily,
+            "plugs/plug{$deviceId}/weekly_kwh" => $weekly,
+            "plugs/plug{$deviceId}/monthly_kwh" => $monthly,
+            "plugs/plug{$deviceId}/daily_key" => $currentDayKey,
+            "plugs/plug{$deviceId}/weekly_key" => $currentWeekKey,
+            "plugs/plug{$deviceId}/monthly_key" => $currentMonthKey,
+            "plugs/plug{$deviceId}/current_power" => $currentPower,
+            "plugs/plug{$deviceId}/last_updated" => $timestamp,
+        ];
+
+        if (!$this->firebase->patchData($updates)) {
+            return $energy;
+        }
+
+        return [
+            'meter_total_kwh' => $currentTotalKwh,
+            'daily_kwh' => $daily,
+            'weekly_kwh' => $weekly,
+            'monthly_kwh' => $monthly,
+        ];
     }
 
     /**
@@ -103,15 +200,17 @@ class MonitoringService
      */
     protected function checkAnomalies(int $deviceId, array $data): void
     {
-        $voltage = $data['voltage'] ?? 220;
+        $rawVoltage = $data['voltage'] ?? null;
+        $voltage = is_numeric($rawVoltage) ? (float) $rawVoltage : null;
         $deviceName = "Plug {$deviceId}";
         $anomalyType = null;
         $message = "";
 
-        if ($voltage < 200) {
+        // Ignore invalid/missing sensor values (e.g., 0V from failed reads).
+        if ($voltage !== null && $voltage > 0 && $voltage < 200) {
             $anomalyType = 'under_voltage';
             $message = "{$deviceName} detected Under-Voltage anomaly ({$voltage}V). Device was turned off.";
-        } elseif ($voltage > 260) {
+        } elseif ($voltage !== null && $voltage > 260) {
             $anomalyType = 'over_voltage';
             $message = "{$deviceName} detected Over-Voltage anomaly ({$voltage}V). Device was turned off.";
         } elseif ($data['anomaly'] ?? false) {

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\IoTController;
 use App\Http\Controllers\Api\MaintenanceAlertController;
+use App\Http\Controllers\Api\MonthlyElectricityBillController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -24,6 +25,7 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/iot/readings', [IoTController::class, 'getLatestReadings'])->name('api.iot.readings');
     Route::get('/iot/statistics', [IoTController::class, 'getStatistics'])->name('api.iot.statistics');
     Route::get('/iot/history', [IoTController::class, 'getHistory'])->name('api.iot.history');
+    Route::delete('/devices/{deviceId}/energy', [IoTController::class, 'clearEnergyData'])->name('api.devices.energy.clear');
     // Dashboard data endpoints
     Route::get('/dashboard/data', [DashboardController::class, 'getDashboardData'])->name('api.dashboard.data');
     
@@ -45,12 +47,15 @@ Route::middleware(['web', 'auth'])->group(function () {
     
     // Records/History
     Route::get('/records/monthly', [DashboardController::class, 'getMonthlyRecords'])->name('api.records.monthly');
+    Route::get('/devices/{deviceId}/energy/export', [IoTController::class, 'exportEnergyData'])->name('api.devices.energy.export');
     
     // Thresholds
     Route::get('/thresholds', [DashboardController::class, 'getThresholds'])->name('api.thresholds');
     Route::post('/devices/{deviceId}/threshold', [DashboardController::class, 'setThreshold'])->name('api.devices.threshold.set');
     Route::get('/devices/{deviceId}/threshold', [DashboardController::class, 'getDeviceThreshold'])->name('api.devices.threshold.get');
     Route::post('/devices/{deviceId}/name', [DashboardController::class, 'setDeviceName'])->name('api.devices.name.set');
+    Route::get('/devices/{deviceId}/monthly-bill', [MonthlyElectricityBillController::class, 'show']);
+    Route::post('/devices/{deviceId}/monthly-bill', [MonthlyElectricityBillController::class, 'store']);
 
     // Notifications
     Route::post('/notifications/{id}/read', [IoTController::class, 'markAsRead']);
@@ -70,4 +75,3 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::delete('/devices/{deviceId}/schedule', [\App\Http\Controllers\Api\DeviceScheduleController::class, 'destroy']);
     Route::post('/devices/{deviceId}/schedule/activate', [\App\Http\Controllers\Api\DeviceScheduleController::class, 'activate']);
 });
-

@@ -4,7 +4,7 @@ import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
 import TextInput from '@/Components/TextInput.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
-import { Mail, Lock, Zap, Eye, EyeOff } from 'lucide-vue-next';
+import { Mail, Lock, Zap, Eye, EyeOff, ShieldCheck, ChevronRight, Activity, Loader2 } from 'lucide-vue-next';
 import { ref } from 'vue';
 import vueRecaptcha from 'vue3-recaptcha2';
 
@@ -39,157 +39,189 @@ const submit = () => {
 </script>
 
 <template>
-    <Head title="Log in" />
+    <Head title="Log In - WattWise" />
 
-    <div class="relative min-h-screen overflow-hidden bg-slate-950 px-4 py-8 sm:px-6 lg:px-10">
-        <div class="pointer-events-none absolute inset-0">
-            <div class="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(34,211,238,0.2),transparent_42%),radial-gradient(circle_at_80%_0%,rgba(59,130,246,0.16),transparent_40%),linear-gradient(180deg,#020617_0%,#0f172a_100%)]"></div>
-            <div class="absolute inset-0 opacity-20" style="background-image:linear-gradient(rgba(148,163,184,0.18)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.18)_1px,transparent_1px);background-size:36px 36px;"></div>
+    <div class="min-h-screen bg-charcoal-900 flex items-center justify-center p-6 selection:bg-electric/30">
+        <!-- Background Elements -->
+        <div class="fixed inset-0 overflow-hidden pointer-events-none">
+            <div class="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-electric/10 blur-[120px] rounded-full"></div>
+            <div class="absolute -bottom-[10%] -right-[10%] w-[40%] h-[40%] bg-muted-green/5 blur-[120px] rounded-full"></div>
         </div>
 
-        <div class="relative z-10 mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center gap-8 lg:grid-cols-[1.15fr_0.85fr]">
-            <section class="hidden rounded-3xl border border-cyan-300/15 bg-gradient-to-br from-cyan-500/16 via-blue-500/10 to-cyan-400/12 p-10 shadow-2xl backdrop-blur-md lg:block">
-                <p class="mb-6 inline-flex items-center rounded-full border border-cyan-200/25 bg-cyan-300/10 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">Operations Overview</p>
-                <h1 class="max-w-xl text-4xl font-bold leading-tight text-white">Access your WattWise control center.</h1>
-                <p class="mt-4 max-w-lg text-base leading-relaxed text-slate-200/95">Track connected devices, review real-time energy performance, and respond to anomalies with confidence.</p>
-                <div class="mt-6 h-px w-full max-w-xl bg-gradient-to-r from-cyan-200/40 via-slate-200/20 to-transparent"></div>
-                <div class="mt-7 grid max-w-xl grid-cols-2 gap-3">
-                    <div class="rounded-xl border border-slate-200/20 bg-slate-900/30 p-4">
-                        <p class="text-[11px] uppercase tracking-[0.16em] text-slate-300">System Availability</p>
-                        <p class="mt-1 text-2xl font-semibold text-white">99.9%</p>
-                    </div>
-                    <div class="rounded-xl border border-slate-200/20 bg-slate-900/30 p-4">
-                        <p class="text-[11px] uppercase tracking-[0.16em] text-slate-300">Alert Latency</p>
-                        <p class="mt-1 text-2xl font-semibold text-white">&lt; 5s</p>
+        <div class="w-full max-w-[1100px] grid lg:grid-cols-2 bg-charcoal-800 rounded-2xl border border-white/5 shadow-2xl overflow-hidden relative z-10">
+            <!-- Left Side: Branding/Visual -->
+            <div class="hidden lg:flex flex-col justify-between p-12 bg-charcoal-900 border-r border-white/5 relative overflow-hidden">
+                <div class="relative z-10">
+                    <Link href="/" class="flex items-center gap-2 mb-16 group">
+                        <div class="w-10 h-10 bg-electric rounded flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <Zap class="w-6 h-6 text-white fill-current" />
+                        </div>
+                        <span class="text-2xl font-bold tracking-tight text-white">WattWise</span>
+                    </Link>
+
+                    <h1 class="text-4xl font-extrabold text-white leading-tight mb-6">
+                        Manage your <br>
+                        <span class="text-electric">home energy easily.</span>
+                    </h1>
+                    <p class="text-gray-400 text-lg leading-relaxed max-w-sm mb-12">
+                        See your live usage, device status, and alerts in one place.
+                    </p>
+
+                    <div class="space-y-6">
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
+                                <ShieldCheck class="w-5 h-5 text-electric" />
+                            </div>
+                            <div>
+                                <h4 class="text-white font-semibold text-sm mb-1">Secure Login</h4>
+                                <p class="text-[11px] text-gray-500 font-medium">Your account and data are protected.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
+                                <Activity class="w-5 h-5 text-muted-green" />
+                            </div>
+                            <div>
+                                <h4 class="text-white font-semibold text-sm mb-1">Live Updates</h4>
+                                <p class="text-[11px] text-gray-500 font-medium">Get real-time device readings and alerts.</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </section>
 
-            <section class="w-full">
-                <div class="mx-auto w-full max-w-lg rounded-3xl border border-slate-700/70 bg-slate-900/85 p-8 shadow-[0_24px_90px_rgba(2,6,23,0.65)] backdrop-blur-xl sm:p-9">
-                    <div class="mb-6">
-                        <p class="mb-3 inline-flex items-center rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">Sign In</p>
-                        <h2 class="text-3xl font-bold text-white">Sign in to your account</h2>
-                        <p class="mt-2 text-sm text-slate-300">Continue to your WattWise monitoring workspace.</p>
+                <!-- Subtle Decorative Graph -->
+                <div class="absolute bottom-0 left-0 right-0 h-32 opacity-20 pointer-events-none flex items-end gap-1 px-4">
+                    <div v-for="h in [30, 45, 25, 60, 40, 70, 50, 85, 45, 60, 30, 50, 75, 40, 60, 80, 50, 30]" :key="h" 
+                         class="flex-1 bg-electric rounded-t-sm"
+                         :style="{ height: h + '%' }">
                     </div>
+                </div>
+            </div>
 
-                <div v-if="status" class="mb-6 p-4 rounded-xl bg-green-500/20 border border-green-500/30 text-sm font-medium text-green-400 flex items-center gap-3">
-                    <svg class="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                    </svg>
+            <!-- Right Side: Login Form -->
+            <div class="p-8 lg:p-16 flex flex-col justify-center">
+                <div class="lg:hidden flex items-center gap-2 mb-10">
+                    <div class="w-8 h-8 bg-electric rounded flex items-center justify-center">
+                        <Zap class="w-5 h-5 text-white fill-current" />
+                    </div>
+                    <span class="text-xl font-bold tracking-tight text-white">WattWise</span>
+                </div>
+
+                <div class="mb-10">
+                    <h2 class="text-3xl font-bold text-white mb-2 tracking-tight">Welcome back</h2>
+                    <p class="text-gray-400">Log in to continue.</p>
+                </div>
+
+                <div v-if="status" class="mb-8 p-4 rounded-lg bg-muted-green/10 border border-muted-green/20 text-xs font-bold text-muted-green flex items-center gap-3">
+                    <ShieldCheck class="w-5 h-5" />
                     {{ status }}
                 </div>
 
-                <form @submit.prevent="submit" class="space-y-5">
-                    <div>
-                        <InputLabel for="email" value="Email Address" class="text-gray-300 font-medium" />
-
-                        <div class="relative mt-2">
-                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                <Mail class="h-5 w-5 text-gray-400" />
+                <form @submit.prevent="submit" class="space-y-6">
+                    <div class="space-y-2">
+                        <InputLabel for="email" value="Email" class="text-xs font-medium !text-gray-300 ml-1" />
+                        <div class="relative group">
+                            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors group-focus-within:text-electric text-gray-500">
+                                <Mail class="h-4.5 w-4.5" />
                             </div>
                             <TextInput
                                 id="email"
                                 type="email"
-                                class="block w-full rounded-xl border-slate-600/80 bg-slate-800/60 pl-10 text-white placeholder-slate-400 shadow-sm transition-all focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-800"
+                                class="block w-full rounded-md border-white/10 !bg-charcoal-900 pl-11 py-3.5 text-sm !text-white placeholder-gray-500 caret-white shadow-sm transition-all focus:border-electric focus:ring-1 focus:ring-electric"
                                 v-model="form.email"
                                 required
                                 autofocus
-                                autocomplete="username"
                                 placeholder="you@example.com"
                             />
                         </div>
-
-                        <InputError class="mt-2" :message="form.errors.email" />
+                        <InputError :message="form.errors.email" />
                     </div>
 
-                    <div>
-                        <InputLabel for="password" value="Password" class="text-gray-300 font-medium" />
-
-                        <div class="relative mt-2">
-                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                <Lock class="h-5 w-5 text-gray-400" />
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between px-1">
+                            <InputLabel for="password" value="Password" class="text-xs font-medium !text-gray-300" />
+                            <Link
+                                v-if="canResetPassword"
+                                :href="route('password.request')"
+                                class="text-xs font-medium text-electric hover:text-white transition-colors"
+                            >
+                                Forgot password?
+                            </Link>
+                        </div>
+                        <div class="relative group">
+                            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors group-focus-within:text-electric text-gray-500">
+                                <Lock class="h-4.5 w-4.5" />
                             </div>
                             <TextInput
                                 id="password"
                                 :type="showPassword ? 'text' : 'password'"
-                                class="block w-full rounded-xl border-slate-600/80 bg-slate-800/60 pl-10 pr-10 text-white placeholder-slate-400 shadow-sm transition-all focus:border-cyan-500 focus:ring-cyan-500 focus:bg-slate-800"
+                                class="block w-full rounded-md border-white/10 !bg-charcoal-900 pl-11 pr-11 py-3.5 text-sm !text-white placeholder-gray-500 caret-white shadow-sm transition-all focus:border-electric focus:ring-1 focus:ring-electric"
                                 v-model="form.password"
                                 required
-                                autocomplete="current-password"
-                                placeholder="••••••••"
+                                placeholder="••••••••••••"
                             />
                             <button
                                 type="button"
                                 @click="showPassword = !showPassword"
-                                class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-300 transition-colors"
+                                class="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-500 hover:text-white transition-colors"
                             >
-                                <Eye v-if="!showPassword" class="h-5 w-5" />
-                                <EyeOff v-else class="h-5 w-5" />
+                                <Eye v-if="!showPassword" class="h-4.5 w-4.5" />
+                                <EyeOff v-else class="h-4.5 w-4.5" />
                             </button>
                         </div>
-
-                        <InputError class="mt-2" :message="form.errors.password" />
+                        <InputError :message="form.errors.password" />
                     </div>
 
-                    <div class="flex items-center justify-between">
+                    <div class="flex items-center px-1">
                         <label class="flex items-center group cursor-pointer">
-                            <Checkbox name="remember" v-model:checked="form.remember" class="rounded border-slate-600 bg-slate-700 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-800" />
-                            <span class="ms-2 text-sm text-gray-300 group-hover:text-white transition-colors">Remember me</span>
+                            <Checkbox name="remember" v-model:checked="form.remember" class="rounded border-white/10 bg-charcoal-900 text-electric focus:ring-electric" />
+                            <span class="ms-3 text-xs font-medium text-gray-400 group-hover:text-gray-300 transition-colors">Remember me</span>
                         </label>
-
-                        <Link
-                            v-if="canResetPassword"
-                            :href="route('password.request')"
-                            class="text-sm font-medium text-cyan-300 hover:text-cyan-200 transition-colors"
-                        >
-                            Forgot password?
-                        </Link>
                     </div>
 
-                    <div class="flex justify-center mt-4">
-                        <vue-recaptcha 
-                            :sitekey="siteKey"
-                            size="normal" 
-                            theme="dark"
-                            @verify="handleRecaptcha" 
-                        />
-                        <InputError class="mt-2" :message="form.errors.g_recaptcha_response" />
+                    <div v-if="siteKey" class="flex justify-center p-4 bg-charcoal-900/50 rounded-lg border border-white/5">
+                        <vue-recaptcha :sitekey="siteKey" size="normal" theme="dark" @verify="handleRecaptcha" />
                     </div>
+                    <InputError :message="form.errors.g_recaptcha_response" class="text-xs text-center" />
 
                     <button
                         type="submit"
                         :disabled="form.processing"
-                        :class="[
-                            'w-full flex justify-center items-center px-4 py-3 border border-cyan-500/20 rounded-xl shadow-lg shadow-cyan-900/20 text-base font-semibold text-white bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500',
-                            { 'opacity-50 cursor-not-allowed': form.processing }
-                        ]"
+                        class="w-full flex justify-center items-center px-6 py-4 bg-electric hover:bg-electric-hover text-white rounded-md font-bold text-sm transition-all shadow-xl shadow-electric/25 group disabled:opacity-50"
                     >
-                        <Zap v-if="!form.processing" class="w-5 h-5 mr-2" />
-                        <svg v-else class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span v-if="form.processing">Signing in...</span>
-                        <span v-else>Sign in</span>
+                        <Loader2 v-if="form.processing" class="w-5 h-5 mr-2 animate-spin" />
+                        <span v-if="form.processing">Logging in...</span>
+                        <span v-else class="flex items-center gap-2">
+                            Log in
+                            <ChevronRight class="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                        </span>
                     </button>
                 </form>
 
-                <div class="mt-6 text-center">
-                    <p class="text-sm text-gray-400">
+                <div class="mt-12 pt-8 border-t border-white/5 text-center">
+                    <p class="text-xs text-gray-400">
                         Don't have an account?
                         <Link
                             :href="route('register')"
-                            class="font-semibold text-cyan-300 hover:text-cyan-200 transition-colors ml-1"
+                            class="text-electric hover:text-white transition-colors ml-1"
                         >
-                            Create an account
+                            Create one
                         </Link>
                     </p>
                 </div>
-
-                <p class="mt-6 text-center text-xs text-slate-400">© 2026 WattWise. Monitor your energy, save the planet.</p>
             </div>
-            </section>
         </div>
     </div>
 </template>
+
+<style scoped>
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+    -webkit-text-fill-color: #ffffff;
+    caret-color: #ffffff;
+    box-shadow: 0 0 0 1000px #060d1b inset;
+    transition: background-color 9999s ease-in-out 0s;
+}
+</style>

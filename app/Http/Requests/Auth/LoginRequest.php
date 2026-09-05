@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Rules\RecaptchaV2;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
@@ -26,10 +27,14 @@ class LoginRequest extends FormRequest
      */
     public function rules(): array
     {
+        $recaptchaSecret = config('services.recaptcha.secret');
+
         return [
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
-            'g_recaptcha_response' => ['required', new \App\Rules\RecaptchaV2()],
+            'g_recaptcha_response' => $recaptchaSecret
+                ? ['required', new RecaptchaV2()]
+                : ['nullable'],
         ];
     }
 

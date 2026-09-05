@@ -76,10 +76,10 @@ const terms = [
     <div class="flex min-h-screen bg-slate-50 dark:bg-gray-950 transition-colors duration-300">
         <Sidebar />
 
-        <main class="flex-1 p-8 bg-slate-50 dark:bg-gray-950 transition-all duration-300" style="margin-left: var(--sidebar-width, 4rem);">
+        <main class="flex-1 bg-slate-50 px-8 pb-8 pt-4 dark:bg-gray-950 transition-all duration-300" style="margin-left: var(--sidebar-width, 4rem);">
             <div class="max-w-4xl mx-auto">
                 <!-- Header -->
-                <div class="mb-10">
+                <div class="sticky top-0 z-30 mb-10 rounded-2xl border border-slate-200/80 bg-white/85 px-5 py-5 shadow-sm shadow-slate-200/60 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80 dark:shadow-none">
                     <Link 
                         href="/dashboard" 
                         class="inline-flex items-center gap-2 text-slate-500 dark:text-gray-400 hover:text-cyan-600 dark:hover:text-cyan-400 mb-6 transition-colors group font-bold"

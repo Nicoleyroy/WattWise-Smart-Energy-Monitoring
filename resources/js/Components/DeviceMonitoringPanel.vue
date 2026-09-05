@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import axios from 'axios';
 import VueApexCharts from 'vue3-apexcharts';
-import { Zap, Activity, FastForward, Target, BarChart3, Gauge, Clock, ShieldCheck } from 'lucide-vue-next';
+import { Zap, Activity, Target, BarChart3, Gauge, Clock, ShieldCheck, Trash2, X } from 'lucide-vue-next';
 import { useTheme } from '@/Composables/useTheme';
 
 const { isDark } = useTheme();
@@ -12,13 +12,58 @@ const props = defineProps({
     deviceName: { type: String, default: 'Device' }
 });
 
+// --- Power Value Formatting ---
+const formatPowerShort = (watts) => {
+    const value = Number(watts);
+    if (!Number.isFinite(value)) return '0 W';
+    const abs = Math.abs(value);
+    if (abs >= 1_000_000) return (value / 1_000_000).toFixed(2) + ' MW';
+    if (abs >= 1_000) return (value / 1_000).toFixed(2) + ' kW';
+    return value.toFixed(1) + ' W';
+};
+
+const formatPowerAxis = (val) => {
+    const value = Number(val);
+    if (!Number.isFinite(value)) return '0';
+    const abs = Math.abs(value);
+    if (abs >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M';
+    if (abs >= 1_000) return (value / 1_000).toFixed(1) + 'k';
+    return value.toFixed(0);
+};
+
 // --- Constants & Thresholds ---
 const THRESHOLDS = {
     voltage: { warning: 210, critical: 200, unit: 'V', label: 'Voltage' },
     current: { warning: 15, critical: 20, unit: 'A', label: 'Current' },
-    frequency: { warning: 59, critical: 58, unit: 'Hz', label: 'Frequency' },
-    pf: { warning: 0.85, critical: 0.75, unit: '', label: 'Power Factor' },
     power: { warning: 3000, critical: 5000, unit: 'W', label: 'Current Power' },
+};
+
+const METRIC_HELP = {
+    voltage: 'Voltage is the electrical pressure that pushes power through the plug. A stable reading helps appliances operate safely.',
+    current: 'Current is the amount of electricity flowing through the plug right now. Higher current usually means a heavier load.',
+    power: 'Power is the device current rate of electricity use, measured in watts.',
+    energy: 'Energy is the total electricity consumed by this plug over time, measured in kilowatt-hours (kWh).',
+};
+
+const MAX_VALID_POWER_W = 1_000_000;
+
+const toFiniteNumber = (value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const sanitizePower = (value, fallback = 0) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+        return fallback;
+    }
+
+    // Treat million-W values as invalid telemetry spikes.
+    if (Math.abs(parsed) >= MAX_VALID_POWER_W) {
+        return fallback;
+    }
+
+    return parsed;
 };
 
 // --- State Management ---
@@ -27,14 +72,22 @@ const lastUpdate = ref(null);
 const viewMode = ref('live'); 
 const activeAlerts = ref([]);
 const exportingCsv = ref(false);
+const clearingData = ref(false);
+const showClearConfirmation = ref(false);
+const LIVE_APPEND_INTERVAL_MS = 2000;
+const MYSQL_SAVE_INTERVAL_MS = 60 * 1000;
+let liveAppendTimer = null;
+let mysqlFetchTimer = null;
+let lastLiveAppendAt = 0;
+let lastMysqlSaveAt = 0;
+let mysqlSaveInFlight = false;
+let listenersAttached = false;
+let firebaseReadyHandler = null;
 
 const liveData = ref({
     voltage: 0,
     current: 0,
-    frequency: 0,
-    pf: 0,
     power: 0,
-    optimal: 0,
     energy: 0
 });
 
@@ -45,7 +98,6 @@ const fullHistory = ref([]);
 const history = ref({
     voltage: [],
     current: [],
-    frequency: [],
     power: [],
     energy: [],
     labels: []
@@ -70,47 +122,21 @@ const csvEscape = (value) => {
 };
 
 const fetchAllDeviceHistoryRows = async () => {
-    const rows = [];
-    const deviceKey = `PLUG${props.deviceId}`;
+    const response = await axios.get('/api/iot/history', {
+        params: { device_id: props.deviceId, hours: 24, interval_minutes: 30 },
+    });
 
-    if (window.db) {
-        const snapshot = await window.db.ref('History').once('value');
-        const historyData = snapshot.val() || {};
-        const timestamps = Object.keys(historyData).sort((a, b) => Number(a) - Number(b));
-
-        timestamps.forEach((ts) => {
-            const entry = historyData[ts]?.[deviceKey];
-            if (!entry) return;
-
-            rows.push([
-                new Date(Number(ts) * 1000).toLocaleString(),
-                entry.voltage ?? 0,
-                entry.current ?? 0,
-                entry.frequency ?? 0,
-                entry.power_factor ?? entry.pf ?? 0,
-                entry.power ?? 0,
-                entry.optimal ?? 0,
-                entry.energy ?? 0,
-            ]);
-        });
+    if (!response.data?.success || !Array.isArray(response.data.data)) {
+        return [];
     }
 
-    if (rows.length === 0 && fullHistory.value.length > 0) {
-        fullHistory.value.forEach((entry) => {
-            rows.push([
-                entry.timestamp,
-                entry.voltage ?? 0,
-                entry.current ?? 0,
-                entry.frequency ?? 0,
-                entry.pf ?? 0,
-                entry.power ?? 0,
-                entry.optimal ?? 0,
-                entry.energy ?? 0,
-            ]);
-        });
-    }
-
-    return rows;
+    return response.data.data.map((entry) => [
+        entry.full_timestamp ?? entry.timestamp ?? '',
+        entry.voltage ?? 0,
+        entry.current ?? 0,
+        entry.power ?? 0,
+        entry.energy ?? 0,
+    ]);
 };
 
 // --- CSV Export Logic ---
@@ -119,11 +145,27 @@ const exportToCSV = async () => {
 
     exportingCsv.value = true;
     try {
-        const headers = ['Timestamp', 'Voltage (V)', 'Current (A)', 'Frequency (Hz)', 'Power Factor', 'Current Power (W)', 'Optimal (%)', 'Total Energy (kWh)'];
+        const headers = ['Timestamp', 'Voltage (V)', 'Current (A)', 'Power (W)', 'Total Energy (kWh)'];
         const rows = await fetchAllDeviceHistoryRows();
         if (rows.length === 0) return;
 
-        const csvContent = [headers, ...rows]
+        const deviceLabel = props.deviceName || `Device ${props.deviceId}`;
+        const exportedAt = new Date().toISOString();
+
+        const reportRows = [
+            ['Report', 'Live Monitoring Energy Export'],
+            ['Device', deviceLabel],
+            ['Device ID', `PLUG${props.deviceId}`],
+            ['Exported At', exportedAt],
+            [],
+            headers,
+            ...rows,
+            [],
+            ['Footer'],
+            ['Total Records', rows.length],
+        ];
+
+        const csvContent = reportRows
             .map((row) => row.map(csvEscape).join(','))
             .join('\n');
 
@@ -138,6 +180,33 @@ const exportToCSV = async () => {
         document.body.removeChild(link);
     } finally {
         exportingCsv.value = false;
+    }
+};
+
+const clearEnergyData = () => {
+    if (!clearingData.value) showClearConfirmation.value = true;
+};
+
+const confirmClearEnergyData = async () => {
+    if (clearingData.value) return;
+
+    clearingData.value = true;
+    try {
+        await axios.delete(`/api/devices/${props.deviceId}/energy`);
+        fullHistory.value = [];
+        history.value = {
+            voltage: [],
+            current: [],
+            power: [],
+            energy: [],
+            labels: [],
+        };
+        showClearConfirmation.value = false;
+    } catch (error) {
+        console.error('Failed to clear energy readings:', error);
+        window.alert('Failed to clear energy readings.');
+    } finally {
+        clearingData.value = false;
     }
 };
 
@@ -177,10 +246,53 @@ const addAlert = (list, key, level, val) => {
     }
 };
 
+const saveLiveReadingToMysql = async (reading) => {
+    const now = Date.now();
+    if (mysqlSaveInFlight || now - lastMysqlSaveAt < MYSQL_SAVE_INTERVAL_MS) return;
+
+    lastMysqlSaveAt = now;
+    mysqlSaveInFlight = true;
+
+    try {
+        await axios.post('/api/iot/energy', {
+            device_id: `PLUG${props.deviceId}`,
+            voltage: reading.voltage,
+            current: reading.current,
+            power: reading.power,
+            energy: reading.energy,
+        });
+    } catch (error) {
+        console.error('Failed to save live energy reading:', error);
+    } finally {
+        mysqlSaveInFlight = false;
+    }
+};
+
+const fetchLiveReadingForMysql = async () => {
+    if (!window.db) return;
+
+    try {
+        const snapshot = await window.db.ref(`Live/PLUG${props.deviceId}`).once('value');
+        const data = snapshot.val();
+        if (!data) return;
+
+        await saveLiveReadingToMysql({
+            voltage: toFiniteNumber(data.voltage, 0),
+            current: toFiniteNumber(data.current, 0),
+            power: sanitizePower(data.power, 0),
+            energy: toFiniteNumber(data.energy, 0),
+        });
+    } catch (error) {
+        console.error('Failed to fetch Firebase live reading for MySQL:', error);
+    }
+};
+
 // --- Firebase Logic ---
 const initListeners = () => {
     requestNotificationPermission();
     if (!window.db) return;
+    if (listenersAttached) return;
+    listenersAttached = true;
 
     const monitorPath = `Live/PLUG${props.deviceId}`;
     
@@ -192,34 +304,17 @@ const initListeners = () => {
 
         // Update current values
         liveData.value = {
-            voltage: data.voltage || 0,
-            current: data.current || 0,
-            frequency: data.frequency || 0,
-            pf: data.power_factor || data.pf || 0,
-            power: data.power || 0,
-            optimal: data.optimal || 0,
-            energy: data.energy || 0
+            voltage: toFiniteNumber(data.voltage, 0),
+            current: toFiniteNumber(data.current, 0),
+            power: sanitizePower(data.power, liveData.value.power ?? 0),
+            energy: toFiniteNumber(data.energy, 0)
         };
 
         checkThresholds(liveData.value);
         lastUpdate.value = new Date().toLocaleTimeString();
         
-        // Update history
-        const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        
-        if (history.value.labels.length > 50) history.value.labels.shift();
-
-        // Only update charts in real-time if in 'live' mode
-        if (viewMode.value === 'live') {
-            updateHistory('voltage', liveData.value.voltage);
-            updateHistory('current', liveData.value.current);
-            updateHistory('frequency', liveData.value.frequency);
-            updateHistory('power', liveData.value.power);
-            updateHistory('energy', liveData.value.energy);
-            
-            history.value.labels.push(timeLabel);
-            if (history.value.labels.length > 50) history.value.labels.shift();
-        }
+        // Keep live chart moving even with sparse Firebase updates.
+        appendLivePoint(true);
 
         // Store full data point for CSV
         fullHistory.value.push({
@@ -231,44 +326,9 @@ const initListeners = () => {
         loading.value = false;
     });
 
-    // --- Added: History Listener to pre-populate graphs ---
-    const historyPath = 'History';
-    window.db.ref(historyPath).limitToLast(50).on('value', (snapshot) => {
-        const historyData = snapshot.val();
-        if (!historyData) return;
-
-        const deviceKey = `PLUG${props.deviceId}`;
-        const timestamps = Object.keys(historyData).sort();
-
-        // Clear existing rolling history to rebuild from Firebase
-        history.value = {
-            voltage: [],
-            current: [],
-            frequency: [],
-            power: [],
-            energy: [],
-            labels: []
-        };
-
-        timestamps.forEach(ts => {
-            const entry = historyData[ts];
-            const data = entry[deviceKey];
-
-            if (data) {
-                const timeLabel = new Date(parseInt(ts) * 1000).toLocaleTimeString([], { 
-                    hour: '2-digit', 
-                    minute: '2-digit' 
-                });
-                
-                history.value.voltage.push(data.voltage || 0);
-                history.value.current.push(data.current || 0);
-                history.value.frequency.push(data.frequency || 0);
-                history.value.power.push(data.power || 0);
-                history.value.energy.push(data.energy || 0);
-                history.value.labels.push(timeLabel);
-            }
-        });
-    });
+    startLiveTicker();
+    fetchLiveReadingForMysql();
+    mysqlFetchTimer = setInterval(fetchLiveReadingForMysql, MYSQL_SAVE_INTERVAL_MS);
 };
 const fetchHistory = async () => {
     loading.value = true;
@@ -283,8 +343,7 @@ const fetchHistory = async () => {
             history.value = {
                 voltage: data.map(d => d.voltage),
                 current: data.map(d => d.current),
-                frequency: data.map(d => d.frequency),
-                power: data.map(d => d.power),
+                power: data.map(d => sanitizePower(d.power, 0)),
                 energy: data.map(d => d.energy),
                 labels: data.map(d => d.timestamp)
             };
@@ -298,28 +357,14 @@ const fetchHistory = async () => {
 
 watch(viewMode, (newMode) => {
     if (newMode === 'live') {
-        // Re-request last 50 points from Firebase to restore live view
-        if (window.db) {
-            window.db.ref('History').limitToLast(50).once('value', (snapshot) => {
-                const historyData = snapshot.val();
-                if (!historyData) return;
-                const deviceKey = `PLUG${props.deviceId}`;
-                const timestamps = Object.keys(historyData).sort();
-                history.value = { voltage: [], current: [], frequency: [], power: [], energy: [], labels: [] };
-                timestamps.forEach(ts => {
-                    const data = historyData[ts][deviceKey];
-                    if (data) {
-                        history.value.voltage.push(data.voltage || 0);
-                        history.value.current.push(data.current || 0);
-                        history.value.frequency.push(data.frequency || 0);
-                        history.value.power.push(data.power || 0);
-                        history.value.energy.push(data.energy || 0);
-                        history.value.labels.push(new Date(parseInt(ts) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-                    }
-                });
-            });
-        }
+        history.value = {
+                voltage: [], current: [], power: [], energy: [], labels: []
+        };
+        lastLiveAppendAt = 0;
+        appendLivePoint(true);
+        startLiveTicker();
     } else {
+        stopLiveTicker();
         fetchHistory();
     }
 });
@@ -329,29 +374,102 @@ const updateHistory = (key, value) => {
     if (history.value[key].length > 50) history.value[key].shift();
 };
 
+const appendLivePoint = (force = false) => {
+    if (viewMode.value !== 'live') return;
+
+    const now = Date.now();
+    if (!force && now - lastLiveAppendAt < Math.floor(LIVE_APPEND_INTERVAL_MS * 0.8)) {
+        return;
+    }
+
+    updateHistory('voltage', Number(liveData.value.voltage ?? 0));
+    updateHistory('current', Number(liveData.value.current ?? 0));
+    updateHistory('power', sanitizePower(liveData.value.power, 0));
+    updateHistory('energy', Number(liveData.value.energy ?? 0));
+
+    history.value.labels.push(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    if (history.value.labels.length > 50) history.value.labels.shift();
+
+    lastLiveAppendAt = now;
+};
+
+const startLiveTicker = () => {
+    if (liveAppendTimer) return;
+
+    liveAppendTimer = setInterval(() => {
+        appendLivePoint();
+    }, LIVE_APPEND_INTERVAL_MS);
+};
+
+const stopLiveTicker = () => {
+    if (!liveAppendTimer) return;
+
+    clearInterval(liveAppendTimer);
+    liveAppendTimer = null;
+};
+
 const destroyListeners = () => {
+    stopLiveTicker();
+    if (mysqlFetchTimer) {
+        clearInterval(mysqlFetchTimer);
+        mysqlFetchTimer = null;
+    }
+    listenersAttached = false;
+
     if (window.db) {
         window.db.ref(`Live/PLUG${props.deviceId}`).off();
-        window.db.ref('History').off();
     }
 };
 
-onMounted(() => initListeners());
-onUnmounted(() => destroyListeners());
+onMounted(() => {
+    firebaseReadyHandler = () => initListeners();
+    window.addEventListener('firebase-ready', firebaseReadyHandler);
+    initListeners();
+});
+onUnmounted(() => {
+    if (firebaseReadyHandler) window.removeEventListener('firebase-ready', firebaseReadyHandler);
+    destroyListeners();
+});
 
 // --- Chart Configurations ---
+const axisLabelColor = computed(() => '#ffffff');
+
 const commonOptions = computed(() => ({
     chart: { 
         toolbar: { show: false }, 
         animations: { enabled: true, easing: 'linear', dynamicAnimation: { speed: 1000 } }, 
-        background: 'transparent' 
+        background: 'transparent',
+        foreColor: axisLabelColor.value,
     },
+    dataLabels: { enabled: false },
     stroke: { curve: 'smooth', width: 2 },
-    grid: { borderColor: isDark.value ? '#334155' : '#e2e8f0', strokeDashArray: 4 },
+    grid: {
+        borderColor: isDark.value ? '#334155' : '#e2e8f0',
+        strokeDashArray: 4,
+        padding: { bottom: 14 }
+    },
     theme: { mode: isDark.value ? 'dark' : 'light' },
     xaxis: { 
-        labels: { show: false }, 
+        categories: history.value.labels,
+        tickAmount: 6,
+        axisTicks: { show: true },
+        labels: {
+            show: false,
+            rotate: 0,
+            rotateAlways: false,
+            hideOverlappingLabels: true,
+            trim: true,
+            offsetY: 4,
+            maxHeight: 56,
+            style: { colors: axisLabelColor.value, fontSize: '10px' },
+        },
         axisBorder: { show: false } 
+    },
+    yaxis: {
+        labels: {
+            style: { colors: axisLabelColor.value, fontSize: '11px' },
+            formatter: formatPowerAxis
+        }
     },
     tooltip: { theme: isDark.value ? 'dark' : 'light' }
 }));
@@ -359,43 +477,26 @@ const commonOptions = computed(() => ({
 const voltageChartOptions = computed(() => ({
     ...commonOptions.value,
     colors: ['#f59e0b'],
-    yaxis: { min: 180, max: 260, labels: { style: { colors: isDark.value ? '#94a3b8' : '#64748b' } } },
+    yaxis: {
+        min: 180,
+        max: 260,
+        labels: {
+            style: { colors: '#ffffff' },
+            formatter: (val) => Number(val).toFixed(0)
+        }
+    },
     annotations: { yaxis: [{ y: THRESHOLDS.voltage.warning, borderColor: '#f59e0b', label: { text: 'Warning', style: { color: '#fff', background: '#f59e0b' } } }, { y: THRESHOLDS.voltage.critical, borderColor: '#ef4444', label: { text: 'Critical', style: { color: '#fff', background: '#ef4444' } } }] }
 }));
 
-const powerFactorOptions = computed(() => ({
-    chart: { type: 'radialBar', height: 250, background: 'transparent' },
-    theme: { mode: isDark.value ? 'dark' : 'light' },
-    plotOptions: {
-        radialBar: {
-            startAngle: -135, endAngle: 135,
-            hollow: { size: '70%' },
-            track: { background: isDark.value ? '#1e293b' : '#f1f5f9', strokeWidth: '97%' },
-            dataLabels: {
-                name: { show: true, color: isDark.value ? '#94a3b8' : '#64748b', fontSize: '13px', offsetY: -10 },
-                value: { color: isDark.value ? '#f1f5f9' : '#334155', fontSize: '30px', show: true, formatter: (val) => (val / 100).toFixed(2) }
-            }
-        }
-    },
-    fill: { gradient: { shade: isDark.value ? 'dark' : 'light', type: 'horizontal', gradientToColors: ['#06b6d4'], stops: [0, 100] } },
+const currentChartOptions = computed(() => ({
+    ...commonOptions.value,
     colors: ['#6366f1'],
-    labels: ['Power Factor']
-}));
-
-const optimalOptions = computed(() => ({
-    ...powerFactorOptions.value,
-    colors: ['#10b981'],
-    plotOptions: {
-        ...powerFactorOptions.value.plotOptions,
-        radialBar: {
-            ...powerFactorOptions.value.plotOptions.radialBar,
-            dataLabels: {
-                ...powerFactorOptions.value.plotOptions.radialBar.dataLabels,
-                value: { color: isDark.value ? '#f1f5f9' : '#334155', fontSize: '30px', show: true, formatter: (val) => val + '%' }
-            }
+    yaxis: {
+        labels: {
+            style: { colors: axisLabelColor.value, fontSize: '11px' },
+            formatter: (val) => Number(val).toFixed(3)
         }
-    },
-    labels: ['Optimal Efficiency']
+    }
 }));
 
 // --- Threshold Helpers ---
@@ -413,13 +514,57 @@ const getStatusClass = (key) => {
     0%, 100% { border-color: #ef4444; }
     50% { border-color: #7f1d1d; }
 }
+
 .animate-pulse-red {
     animation: pulse-red 1s infinite;
+}
+
+/* ApexCharts can apply inline SVG fills; force readable white text. */
+.apexcharts-xaxis-label,
+.apexcharts-yaxis-label,
+.apexcharts-text tspan {
+    fill: #ffffff !important;
+    color: #ffffff !important;
+    opacity: 1 !important;
+}
+
+.apexcharts-xaxistooltip,
+.apexcharts-yaxistooltip {
+    color: #ffffff !important;
+    border-color: #334155 !important;
+    background: #0f172a !important;
+}
+
+.apexcharts-xaxistooltip-text,
+.apexcharts-yaxistooltip-text {
+    color: #ffffff !important;
+}
+
+/* Hide noisy chart controls/ticks that make the UI unreadable. */
+.apexcharts-toolbar {
+    display: none !important;
+}
+
+.apexcharts-xaxis-texts-g,
+.apexcharts-xaxis-tick,
+.apexcharts-xaxis line {
+    display: none !important;
 }
 </style>
 
 <template>
-    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm transition-colors duration-300">
+    <div class="relative bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm transition-colors duration-300">
+        <button
+            type="button"
+            title="Clear stored energy data"
+            aria-label="Clear stored energy data"
+            @click="clearEnergyData"
+            :disabled="clearingData"
+            class="absolute right-4 top-4 z-10 rounded-lg border border-red-200 bg-red-50 p-2 text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50"
+        >
+            <Trash2 class="h-4 w-4" />
+        </button>
+
         <!-- Alert Banner -->
         <div v-if="activeAlerts.length > 0" class="bg-red-50 dark:bg-red-950/30 border-b border-red-200 dark:border-red-900/50 p-3 overflow-hidden">
             <div class="flex items-center gap-4 animate-marquee whitespace-nowrap">
@@ -432,7 +577,7 @@ const getStatusClass = (key) => {
         </div>
 
         <!-- Dashboard Header -->
-        <div class="px-6 py-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-between gap-4">
+        <div class="px-6 py-4 pr-16 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-between gap-4">
             <div class="flex items-center gap-3">
                 <div class="p-2 bg-cyan-100 dark:bg-cyan-900/40 rounded-lg">
                     <Activity class="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
@@ -471,18 +616,22 @@ const getStatusClass = (key) => {
 
         <div class="p-6 space-y-8">
             <!-- Metric Cards Grid -->
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div v-for="(val, key) in liveData" :key="key" 
-                    class="p-4 rounded-xl border transition-all duration-300 flex flex-col justify-between h-24 shadow-sm hover:shadow-md"
+                    class="group relative p-4 rounded-xl border transition-all duration-300 flex flex-col justify-between h-24 shadow-sm hover:shadow-md cursor-help"
                     :class="getStatusClass(key)">
-                    <p class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold">{{ key.replace('_', ' ') }}</p>
+                    <p class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold">{{ key.replace('_', ' ') }} <span aria-hidden="true" class="text-cyan-500">ⓘ</span></p>
                     <div class="flex items-baseline gap-1">
                         <span class="text-xl font-bold">
-                            {{ typeof val === 'number' ? (key === 'pf' ? val.toFixed(2) : val.toFixed(1)) : val }}
+                            {{ typeof val === 'number' ? val.toFixed(1) : val }}
                         </span>
                         <span class="text-[10px] opacity-60 font-medium uppercase text-gray-500 dark:text-gray-400">
-                            {{ key === 'voltage' ? 'V' : key === 'current' ? 'A' : key === 'frequency' ? 'Hz' : key === 'power' ? 'W' : key === 'energy' ? 'kWh' : key === 'optimal' ? '%' : '' }}
+                            {{ key === 'voltage' ? 'V' : key === 'current' ? 'A' : key === 'power' ? 'W' : key === 'energy' ? 'kWh' : '' }}
                         </span>
+                    </div>
+                    <div role="tooltip" class="pointer-events-none absolute z-30 left-1/2 bottom-[calc(100%+0.5rem)] w-56 -translate-x-1/2 rounded-lg bg-gray-900 px-3 py-2 text-xs normal-case leading-relaxed text-white shadow-xl opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 dark:bg-gray-700">
+                        {{ METRIC_HELP[key] }}
+                        <span class="absolute left-1/2 top-full -translate-x-1/2 border-x-4 border-t-4 border-x-transparent border-t-gray-900 dark:border-t-gray-700"></span>
                     </div>
                 </div>
             </div>
@@ -490,7 +639,7 @@ const getStatusClass = (key) => {
             <!-- Main Charts Row -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <!-- Voltage History -->
-                <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 shadow-sm border transition-colors duration-300">
+                <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 shadow-sm transition-colors duration-300">
                     <div class="flex items-center justify-between mb-4">
                         <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
                             <Zap class="w-4 h-4 text-amber-500" /> Voltage Stability (V)
@@ -498,33 +647,46 @@ const getStatusClass = (key) => {
                         <span class="text-xs text-gray-500 dark:text-gray-400">{{ viewMode === 'live' ? 'Live Stream' : 'Archive Data' }}</span>
                     </div>
                     <VueApexCharts type="line" height="200" :options="voltageChartOptions" :series="[{ name: 'Voltage', data: history.voltage }]" />
+                    <p class="mt-2 text-xs text-gray-400 dark:text-gray-400">Timeline: newest reading is on the right. Updates every 2 seconds in Live mode.</p>
                 </div>
 
                 <!-- Current History -->
-                <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 shadow-sm border transition-colors duration-300">
+                <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 shadow-sm transition-colors duration-300">
                     <div class="flex items-center justify-between mb-4">
                         <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
                             <Activity class="w-4 h-4 text-indigo-500" /> Current Load (A)
                         </h4>
                         <span class="text-xs text-gray-500 dark:text-gray-400">{{ viewMode === 'live' ? 'Live Stream' : 'Archive Data' }}</span>
                     </div>
-                    <VueApexCharts type="line" height="200" :options="{ ...commonOptions.value, colors: ['#6366f1'] }" :series="[{ name: 'Current', data: history.current }]" />
+                    <VueApexCharts type="line" height="200" :options="currentChartOptions" :series="[{ name: 'Current', data: history.current }]" />
+                    <p class="mt-2 text-xs text-gray-400 dark:text-gray-400">Tip: if the line looks flat, the current is stable. Spikes indicate sudden load changes.</p>
                 </div>
             </div>
 
-            <!-- Gauges and Secondary Stats -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <!-- Power Factor Gauge -->
-                <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 shadow-sm flex flex-col items-center justify-center transition-colors duration-300">
-                    <VueApexCharts type="radialBar" height="250" :options="powerFactorOptions" :series="[liveData.pf * 100]" />
+            <!-- Bottom Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Power Consumption -->
+                <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 shadow-sm transition-colors duration-300">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                            <BarChart3 class="w-4 h-4 text-cyan-600" /> Active Power
+                        </h4>
+                        <div class="flex items-center gap-6">
+                            <div class="flex flex-col items-center">
+                                <span class="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Highest</span>
+                                <span class="text-lg font-black text-cyan-700 dark:text-cyan-400">{{ formatPowerShort(Math.max(...history.power.filter(v => typeof v === 'number' && !isNaN(v)))) }}</span>
+                            </div>
+                            <div class="flex flex-col items-center">
+                                <span class="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Lowest</span>
+                                <span class="text-lg font-black text-gray-400 dark:text-gray-500">{{ formatPowerShort(Math.min(...history.power.filter(v => typeof v === 'number' && !isNaN(v)))) }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <VueApexCharts type="area" height="200" :options="{ ...commonOptions.value, colors: ['#06b6d4'], fill: { gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.1 } } }" :series="[{ name: 'Power', data: history.power }]" />
+                    <p class="mt-2 text-xs text-gray-400 dark:text-gray-400">Power trend over recent samples. Higher plateaus mean the device is consuming more watts.</p>
                 </div>
 
-                <!-- Optimal Efficiency Gauge -->
-                <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 shadow-sm flex flex-col items-center justify-center transition-colors duration-300">
-                    <VueApexCharts type="radialBar" height="250" :options="optimalOptions" :series="[liveData.optimal]" />
-                </div>
-
-                <!-- Total Energy Card -->
+                <!-- Total Energy -->
                 <div class="bg-gradient-to-br from-cyan-50 to-blue-50 dark:from-cyan-950 dark:to-blue-950 rounded-xl p-6 border border-cyan-100 dark:border-cyan-900/50 flex flex-col items-center justify-center text-center shadow-sm transition-colors duration-300">
                     <div class="w-16 h-16 bg-cyan-100 dark:bg-cyan-900 rounded-full flex items-center justify-center mb-4">
                         <ShieldCheck class="w-8 h-8 text-cyan-600 dark:text-cyan-400" />
@@ -536,28 +698,59 @@ const getStatusClass = (key) => {
                     </div>
                     <p class="text-xs text-cyan-600/70 dark:text-cyan-400/50 mt-4">Safe consumption levels maintained</p>
                 </div>
-            </div>
 
-            <!-- Bottom Charts -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- Power Consumption -->
-                <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 shadow-sm transition-colors duration-300">
-                    <div class="flex items-center justify-between mb-4">
-                        <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                            <BarChart3 class="w-4 h-4 text-cyan-600" /> Active Power (W)
-                        </h4>
+            </div>
+        </div>
+
+        <div
+            v-if="showClearConfirmation"
+            class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+            @click.self="showClearConfirmation = false"
+        >
+            <div class="w-full max-w-md rounded-2xl border border-red-200 bg-white p-6 shadow-2xl dark:border-red-900/60 dark:bg-gray-900">
+                <div class="flex items-start justify-between gap-4">
+                    <div class="flex items-start gap-3">
+                        <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-400">
+                            <Trash2 class="h-5 w-5" />
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">Clear energy data?</h3>
+                            <p class="mt-1 text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+                                This will permanently delete all stored readings for {{ props.deviceName || `Device ${props.deviceId}` }}.
+                            </p>
+                        </div>
                     </div>
-                    <VueApexCharts type="area" height="200" :options="{ ...commonOptions.value, colors: ['#06b6d4'], fill: { gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.1 } } }" :series="[{ name: 'Power', data: history.power }]" />
+                    <button
+                        type="button"
+                        aria-label="Close confirmation"
+                        class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                        @click="showClearConfirmation = false"
+                    >
+                        <X class="h-5 w-5" />
+                    </button>
                 </div>
 
-                <!-- Frequency -->
-                <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 shadow-sm transition-colors duration-300">
-                    <div class="flex items-center justify-between mb-4">
-                        <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                            <FastForward class="w-4 h-4 text-rose-500" /> Line Frequency (Hz)
-                        </h4>
-                    </div>
-                    <VueApexCharts type="line" height="200" :options="{ ...commonOptions.value, colors: ['#f43f5e'], yaxis: { min: 59, max: 61, labels: { style: { colors: 'currentColor' } } } }" :series="[{ name: 'Frequency', data: history.frequency }]" />
+                <div class="mt-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-xs font-medium text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
+                    This action cannot be undone. Live monitoring will continue normally.
+                </div>
+
+                <div class="mt-6 flex justify-end gap-3">
+                    <button
+                        type="button"
+                        class="rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                        @click="showClearConfirmation = false"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        :disabled="clearingData"
+                        @click="confirmClearEnergyData"
+                    >
+                        <Trash2 class="h-4 w-4" />
+                        {{ clearingData ? 'Clearing...' : 'Clear data' }}
+                    </button>
                 </div>
             </div>
         </div>

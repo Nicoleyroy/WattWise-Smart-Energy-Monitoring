@@ -132,7 +132,7 @@ watch(isExpanded, (value) => {
                 ]"
                 title="Device Settings"
             >
-                <div :class="[
+                <!-- <div :class="[
                     'flex items-center gap-3 px-3 py-2.5 transition-colors',
                     isDeviceSettingsActive ? 'text-cyan-300' : 'text-cyan-300/90'
                 ]">
@@ -142,29 +142,31 @@ watch(isExpanded, (value) => {
                     <span :class="['whitespace-nowrap font-bold transition-all duration-300', labelClass]">
                         Device Settings
                     </span>
-                </div>
+                </div> -->
 
                 <div :class="['overflow-hidden transition-all duration-300', subMenuClass]">
                     <div class="px-3 pb-2 space-y-0.5">
                     <Link
                         :href="route('device.settings', { id: 1 })"
-                        class="flex items-center gap-2 rounded-md px-0 py-1.5 text-[0.95rem] font-medium transition-colors"
+                        class="relative flex items-center gap-2 rounded-md px-2 py-2 text-[0.95rem] font-medium transition-all"
                         :class="isDeviceSettingsActiveFor(1)
-                            ? 'text-white'
-                            : 'text-gray-300 hover:text-white'"
+                            ? 'bg-cyan-500/20 text-white shadow-sm ring-1 ring-cyan-400/40'
+                            : 'text-gray-300 hover:bg-gray-800/70 hover:text-white'"
                     >
-                        <span class="h-2 w-2 rounded-full bg-cyan-300"></span>
+                        <span class="h-2 w-2 rounded-full" :class="isDeviceSettingsActiveFor(1) ? 'bg-cyan-300 ring-4 ring-cyan-400/20 animate-pulse' : 'bg-cyan-300'"></span>
                         Plug 1
+                        <span v-if="isDeviceSettingsActiveFor(1)" class="ml-auto text-[9px] font-black uppercase tracking-wider text-cyan-200">Active</span>
                     </Link>
                     <Link
                         :href="route('device.settings', { id: 2 })"
-                        class="flex items-center gap-2 rounded-md px-0 py-1.5 text-[0.95rem] font-medium transition-colors"
+                        class="relative flex items-center gap-2 rounded-md px-2 py-2 text-[0.95rem] font-medium transition-all"
                         :class="isDeviceSettingsActiveFor(2)
-                            ? 'text-white'
-                            : 'text-gray-300 hover:text-white'"
+                            ? 'bg-cyan-500/20 text-white shadow-sm ring-1 ring-cyan-400/40'
+                            : 'text-gray-300 hover:bg-gray-800/70 hover:text-white'"
                     >
-                        <span class="h-2 w-2 rounded-full bg-cyan-300"></span>
+                        <span class="h-2 w-2 rounded-full" :class="isDeviceSettingsActiveFor(2) ? 'bg-cyan-300 ring-4 ring-cyan-400/20 animate-pulse' : 'bg-cyan-300'"></span>
                         Plug 2
+                        <span v-if="isDeviceSettingsActiveFor(2)" class="ml-auto text-[9px] font-black uppercase tracking-wider text-cyan-200">Active</span>
                     </Link>
                     </div>
                 </div>

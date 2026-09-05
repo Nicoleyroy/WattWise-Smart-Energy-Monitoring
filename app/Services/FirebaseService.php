@@ -172,14 +172,137 @@ class FirebaseService
     public function setControl(int $deviceId, bool $state): bool
     {
         try {
-            $response = $this->client()->patch($this->buildUrl('.json'), [
+            $nowMs = (int) (microtime(true) * 1000);
+            $updates = [
                 "Control/PLUG{$deviceId}" => $state,
                 "Status/PLUG{$deviceId}" => $state ? 'ON' : 'OFF',
-            ]);
+            ];
+
+            if ($state) {
+                $existingUptime = $this->getDeviceUptime($deviceId);
+                $onlineSince = $existingUptime['online_since'] ?? $nowMs;
+                $updates["Uptime/online_since"] = $onlineSince;
+                $updates["Uptime/last_updated"] = $nowMs;
+                $updates["Uptime/PLUG{$deviceId}"] = [
+                    'online_since' => $onlineSince,
+                    'last_updated' => $nowMs,
+                ];
+                $updates["plugs/plug{$deviceId}/uptime_since"] = $onlineSince;
+            } else {
+                $updates["Uptime/PLUG{$deviceId}"] = [
+                    'online_since' => null,
+                    'uptime_seconds' => 0,
+                    'last_updated' => $nowMs,
+                ];
+                $updates["plugs/plug{$deviceId}/uptime_since"] = null;
+            }
+
+            $response = $this->client()->patch($this->buildUrl('.json'), $updates);
 
             return $response->successful();
         } catch (\Exception $e) {
             Log::error("Error setting control: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Get uptime state for a specific device or total system from Firebase
+     */
+    public function getDeviceUptime(?int $deviceId = null): ?array
+    {
+        try {
+            $path = $deviceId ? "Uptime/PLUG{$deviceId}.json" : "Uptime.json";
+            $response = $this->client()->get($this->buildUrl($path));
+            $data = $response->successful() ? $response->json() : null;
+            if (!$data && $deviceId) {
+                $rootPath = "Uptime.json";
+                $rootResponse = $this->client()->get($this->buildUrl($rootPath));
+                $data = $rootResponse->successful() ? $rootResponse->json() : null;
+            }
+            return $data;
+        } catch (\Exception $e) {
+            Log::error("Error getting uptime: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get all uptime data from Firebase
+     */
+    public function getAllUptimes(): array
+    {
+        try {
+            $path = "Uptime.json";
+            $response = $this->client()->get($this->buildUrl($path));
+            return $response->successful() ? ($response->json() ?? []) : [];
+        } catch (\Exception $e) {
+            Log::error("Error getting all uptime data: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Format raw uptime seconds into human-readable string (e.g. "1h 30m" or "5d 2h")
+     */
+    public function formatUptimeSeconds(int $seconds): string
+    {
+        if ($seconds < 0) return 'N/A';
+        if ($seconds < 60) return "{$seconds}s";
+        $totalMinutes = (int) floor($seconds / 60);
+        $days = (int) floor($totalMinutes / 1440);
+        $hours = (int) floor(($totalMinutes % 1440) / 60);
+        $minutes = $totalMinutes % 60;
+        if ($days > 0) return "{$days}d {$hours}h";
+        if ($hours > 0) return "{$hours}h {$minutes}m";
+        return "{$minutes}m";
+    }
+
+    /**
+     * Set device uptime in Firebase Realtime Database (for whole device unit)
+     */
+    public function setDeviceUptime(?int $deviceId = null, ?int $onlineSinceMs = null, ?int $uptimeSeconds = null): bool
+    {
+        try {
+            $nowMs = (int) (microtime(true) * 1000);
+            $updates = [];
+
+            if ($onlineSinceMs && $onlineSinceMs > 0) {
+                $calculatedSeconds = $uptimeSeconds ?? (int) max(0, floor(($nowMs - $onlineSinceMs) / 1000));
+                $formatted = $this->formatUptimeSeconds($calculatedSeconds);
+                
+                $updates["Uptime/online_since"] = $onlineSinceMs;
+                $updates["Uptime/uptime_seconds"] = $calculatedSeconds;
+                $updates["Uptime/formatted"] = $formatted;
+                $updates["Uptime/last_updated"] = $nowMs;
+            } else {
+                $updates["Uptime/online_since"] = null;
+                $updates["Uptime/uptime_seconds"] = 0;
+                $updates["Uptime/formatted"] = "N/A";
+                $updates["Uptime/last_updated"] = $nowMs;
+            }
+
+            return $this->patchData($updates);
+        } catch (\Exception $e) {
+            Log::error("Error setting total device uptime: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Patch multiple RTDB paths in one request.
+     */
+    public function patchData(array $updates): bool
+    {
+        if (empty($updates)) {
+            return true;
+        }
+
+        try {
+            $response = $this->client()->patch($this->buildUrl('.json'), $updates);
+            return $response->successful();
+        } catch (\Exception $e) {
+            Log::error("Error patching Firebase data: " . $e->getMessage());
             return false;
         }
     }

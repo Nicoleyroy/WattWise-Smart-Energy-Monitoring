@@ -214,8 +214,8 @@ const deleteNotification = async (id) => {
         <!-- Main Content -->
         <main class="flex-1 bg-white dark:bg-gray-950 transition-[margin] duration-300 transition-colors" style="margin-left: var(--sidebar-width, 4rem);">
             <!-- Header -->
-            <header class="sticky top-0 z-40 border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-950/80 backdrop-blur-lg shadow-sm">
-                <div class="flex items-center justify-between px-8 py-6">
+            <header class="sticky top-0 z-50 mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-5 shadow-sm shadow-slate-200/60 backdrop-blur-xl transition-colors duration-300 dark:border-gray-800 dark:bg-gray-950/80 dark:shadow-none sm:px-6">
+                <div class="flex items-center justify-between">
                     <div>
                         <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-3">
                             <div class="w-10 h-10 rounded-lg bg-cyan-100 dark:bg-cyan-900/40 flex items-center justify-center">

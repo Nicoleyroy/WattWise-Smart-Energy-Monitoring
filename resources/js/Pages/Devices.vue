@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from "vue"
+import { ref, computed, onMounted, onUnmounted } from "vue"
 import { Head, Link } from "@inertiajs/vue3"
 import Sidebar from '@/Components/Sidebar.vue'
 import {
@@ -257,6 +257,73 @@ const getEfficiencyRating = (dailyUsage: number): { label: string, color: string
   if (dailyUsage < 30) return { label: 'Fair', color: 'text-amber-600' }
   return { label: 'Poor', color: 'text-red-600' }
 }
+
+const formatUptimeSec = (seconds: number) => {
+  if (!Number.isFinite(seconds) || seconds < 0) return 'N/A';
+  if (seconds < 60) return `${Math.floor(seconds)}s`;
+  const totalMinutes = Math.floor(seconds / 60);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+};
+
+let uptimeInterval: any = null;
+
+onMounted(() => {
+  if ((window as any).db) {
+    (window as any).db.ref('Uptime').on('value', (snapshot: any) => {
+      const uptimes = snapshot.val() || {};
+      const rootOnlineSince = Number(uptimes.online_since);
+      const rootUptimeSeconds = Number(uptimes.uptime_seconds);
+
+      props.devices.forEach((device) => {
+        const key = `PLUG${device.id}`;
+        const node = uptimes[key] || {};
+        const onlineSince = Number(node.online_since) || (Number.isFinite(rootOnlineSince) && rootOnlineSince > 0 ? rootOnlineSince : null);
+        const uptimeSec = (Number.isFinite(Number(node.uptime_seconds)) && Number(node.uptime_seconds) > 0)
+          ? Number(node.uptime_seconds)
+          : (Number.isFinite(rootUptimeSeconds) && rootUptimeSeconds > 0 ? rootUptimeSeconds : null);
+
+        if (onlineSince && device.status === 'online') {
+          const secs = (Date.now() - onlineSince) / 1000;
+          device.uptime = formatUptimeSec(secs);
+        } else if (uptimeSec && device.status === 'online') {
+          device.uptime = formatUptimeSec(uptimeSec);
+        } else if (device.status !== 'online') {
+          device.uptime = 'N/A';
+        }
+      });
+    });
+  }
+
+  uptimeInterval = setInterval(() => {
+    if ((window as any).db) {
+      (window as any).db.ref('Uptime').once('value', (snapshot: any) => {
+        const uptimes = snapshot.val() || {};
+        const rootOnlineSince = Number(uptimes.online_since);
+        props.devices.forEach((device) => {
+          const key = `PLUG${device.id}`;
+          const node = uptimes[key] || {};
+          const onlineSince = Number(node.online_since) || (Number.isFinite(rootOnlineSince) && rootOnlineSince > 0 ? rootOnlineSince : null);
+          if (onlineSince && device.status === 'online') {
+            const secs = (Date.now() - onlineSince) / 1000;
+            device.uptime = formatUptimeSec(secs);
+          }
+        });
+      });
+    }
+  }, 5000);
+});
+
+onUnmounted(() => {
+  if (uptimeInterval) clearInterval(uptimeInterval);
+  if ((window as any).db) {
+    (window as any).db.ref('Uptime').off();
+  }
+});
 </script>
 
 <template>
@@ -271,7 +338,7 @@ const getEfficiencyRating = (dailyUsage: number): { label: string, color: string
     <main class="flex-1 bg-white dark:bg-gray-950 transition-[margin] duration-300 transition-colors" style="margin-left: var(--sidebar-width, 4rem);">
 
       <!-- Header -->
-      <header class="sticky top-0 z-40 flex items-center justify-between px-8 py-4 border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg shadow-sm">
+      <header class="sticky top-0 z-50 mb-6 flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-4 shadow-sm shadow-slate-200/60 backdrop-blur-xl transition-colors duration-300 dark:border-gray-800 dark:bg-gray-950/80 dark:shadow-none sm:px-6">
         <div>
           <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">Devices</h1>
           <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">

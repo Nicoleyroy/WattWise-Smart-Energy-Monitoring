@@ -96,6 +96,14 @@ class SimulateDeviceData extends Command
             ];
             Http::patch("{$dbUrl}/History/{$timestamp}.json{$auth}", $historyPayload);
 
+             $isPlugOn = !$dailyLimitReached;
+             $nowMs = (int) (microtime(true) * 1000);
+             if ($isPlugOn) {
+                 $firebase->setDeviceUptime($deviceId, $nowMs - 3600000); // 1 hour uptime simulated
+             } else {
+                 $firebase->setDeviceUptime($deviceId, null);
+             }
+
              Http::patch("{$dbUrl}/plugs/plug{$deviceId}.json{$auth}", [
                 'current_power' => $power,
                 'daily_kwh' => $dailyKwh,

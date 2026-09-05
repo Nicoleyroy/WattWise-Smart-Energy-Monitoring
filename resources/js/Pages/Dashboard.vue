@@ -51,6 +51,50 @@ const maintenanceAlerts = ref([]);
 const notifiedDevices = ref(new Set());
 const latestEnergy = ref({});
 const latestPlugs = ref({});
+const uptimeSince = new Map();
+const powerStateKnown = new Set();
+let uptimeTimer = null;
+
+const formatUptime = (seconds) => {
+    if (!Number.isFinite(seconds) || seconds < 0) return 'N/A';
+    if (seconds < 60) return `${Math.floor(seconds)}s`;
+    const totalMinutes = Math.floor(seconds / 60);
+    const days = Math.floor(totalMinutes / 1440);
+    const hours = Math.floor((totalMinutes % 1440) / 60);
+    const minutes = totalMinutes % 60;
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+};
+
+const updateDeviceUptime = (device, isOn) => {
+    if (!isOn) {
+        uptimeSince.delete(device.id);
+        device.uptime = 'N/A';
+        return;
+    }
+
+    if (!uptimeSince.has(device.id)) {
+        const now = Date.now();
+        uptimeSince.set(device.id, now);
+        if (window.db) {
+            window.db.ref('Uptime').transaction((current) => {
+                if (current && (current.online_since || current.uptime_seconds)) {
+                    return current;
+                }
+                return {
+                    online_since: now,
+                    last_updated: now,
+                };
+            });
+        }
+    }
+
+    const startedAt = uptimeSince.get(device.id);
+    if (startedAt) {
+        device.uptime = formatUptime((Date.now() - startedAt) / 1000);
+    }
+};
 
 const devices = ref([
     {
@@ -60,7 +104,9 @@ const devices = ref([
         currentPower: 0,
         dailyLimit: 0,
         dailyKwh: 0,
+        monthlyKwh: 0,
         usageKwh: 0,
+        uptime: 'N/A',
         thresholdType: 'daily',
         isOn: false,
         lastUpdated: null,
@@ -72,7 +118,9 @@ const devices = ref([
         currentPower: 0,
         dailyLimit: 0,
         dailyKwh: 0,
+        monthlyKwh: 0,
         usageKwh: 0,
+        uptime: 'N/A',
         thresholdType: 'daily',
         isOn: false,
         lastUpdated: null,
@@ -97,6 +145,43 @@ const getLimitReachedStatus = (thresholdType) => {
         ? thresholdType
         : 'daily';
     return `${type.charAt(0).toUpperCase() + type.slice(1)} Limit Reached`;
+};
+
+const toFiniteNumber = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const MAX_VALID_POWER_W = 1_000_000;
+
+const sanitizePowerWatts = (value, fallback = 0) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+        return toFiniteNumber(fallback);
+    }
+
+    // Drop obvious bad telemetry spikes in the million-W range.
+    if (Math.abs(parsed) >= MAX_VALID_POWER_W) {
+        return toFiniteNumber(fallback);
+    }
+
+    return parsed;
+};
+
+const formatPower = (watts) => {
+    const value = toFiniteNumber(watts);
+    const absolute = Math.abs(value);
+
+    if (absolute >= 1_000_000_000) {
+        return `${(value / 1_000_000_000).toFixed(2)} GW`;
+    }
+    if (absolute >= 1_000_000) {
+        return `${(value / 1_000_000).toFixed(2)} MW`;
+    }
+    if (absolute >= 1_000) {
+        return `${(value / 1_000).toFixed(2)} kW`;
+    }
+    return `${value.toFixed(1)} W`;
 };
 
 const fetchAlerts = async () => {
@@ -148,19 +233,23 @@ const triggerDailyLimitAlert = async (device) => {
 
 const refreshSummaryCards = () => {
     const totalPower = devices.value.reduce(
-        (total, device) => total + Number(device.currentPower || 0),
+        (total, device) => total + toFiniteNumber(device.currentPower),
+        0,
+    );
+    const totalMonthlyKwh = devices.value.reduce(
+        (total, device) => total + toFiniteNumber(device.monthlyKwh),
         0,
     );
     const totalDailyKwh = devices.value.reduce(
-        (total, device) => total + Number(device.dailyKwh || 0),
+        (total, device) => total + toFiniteNumber(device.dailyKwh),
         0,
     );
     const configuredLimits = devices.value.filter(
         (device) => Number(device.dailyLimit || 0) > 0,
     ).length;
 
-    summaryCards.value[0].value = `${totalPower.toFixed(1)}W`;
-    summaryCards.value[1].value = `${devices.value.reduce((total, device) => total + Number(device.usageKwh || 0), 0).toFixed(3)} kWh`;
+    summaryCards.value[0].value = formatPower(totalPower);
+    summaryCards.value[1].value = `${totalMonthlyKwh.toFixed(3)} kWh`;
     summaryCards.value[2].value = `${totalDailyKwh.toFixed(3)} kWh`;
     summaryCards.value[3].value = configuredLimits.toString();
 };
@@ -184,7 +273,14 @@ onMounted(() => {
                 const data = liveData[deviceKey];
                 if (!data) return;
 
-                device.currentPower = Number(data.power || 0);
+                if (powerStateKnown.has(device.id)) {
+                    updateDeviceUptime(device, device.isOn);
+                }
+
+                device.currentPower = sanitizePowerWatts(
+                    data.power,
+                    device.currentPower,
+                );
                 if (!device.status.endsWith('Limit Reached')) {
                     device.status = data.anomaly
                         ? 'Maintenance Needed'
@@ -196,6 +292,16 @@ onMounted(() => {
 
             refreshSummaryCards();
         });
+
+        uptimeTimer = window.setInterval(() => {
+            const now = Date.now();
+            devices.value.forEach((device) => {
+                const startedAt = uptimeSince.get(device.id);
+                if (startedAt && powerStateKnown.has(device.id) && device.isOn) {
+                    device.uptime = formatUptime((now - startedAt) / 1000);
+                }
+            });
+        }, 1000);
 
         window.db.ref('plugs').on('value', (snapshot) => {
             const plugs = snapshot.val();
@@ -209,10 +315,12 @@ onMounted(() => {
                 const savedName = localStorage.getItem(`device_${device.id}_name`);
                 device.name = (plug.name && String(plug.name).trim()) || savedName || `Plug ${device.id}`;
 
-                device.currentPower = Number(
-                    plug.current_power ?? device.currentPower ?? 0,
+                device.currentPower = sanitizePowerWatts(
+                    plug.current_power,
+                    device.currentPower,
                 );
                 device.dailyKwh = Number(plug.daily_kwh || 0);
+                device.monthlyKwh = Number(plug.monthly_kwh || 0);
                 device.dailyLimit = Number((plug.threshold_value ?? plug.daily_limit) || 0);
                 device.thresholdType = ['daily', 'weekly', 'monthly'].includes(plug.threshold_type)
                     ? plug.threshold_type
@@ -244,16 +352,30 @@ onMounted(() => {
             latestEnergy.value = energy;
 
             devices.value.forEach((device) => {
+                device.dailyKwh = Number(
+                    energy[`PLUG${device.id}`]?.daily_kwh
+                        ?? latestPlugs.value[`plug${device.id}`]?.daily_kwh
+                        ?? device.dailyKwh
+                        ?? 0,
+                );
                 device.usageKwh = getUsageByType(
                     energy[`PLUG${device.id}`],
                     latestPlugs.value[`plug${device.id}`],
                     device.thresholdType,
+                );
+                device.monthlyKwh = Number(
+                    energy[`PLUG${device.id}`]?.monthly_kwh
+                        ?? latestPlugs.value[`plug${device.id}`]?.monthly_kwh
+                        ?? device.monthlyKwh
+                        ?? 0,
                 );
 
                 if (device.dailyLimit > 0 && device.usageKwh >= device.dailyLimit) {
                     device.status = getLimitReachedStatus(device.thresholdType);
                 }
             });
+
+            refreshSummaryCards();
         });
 
         window.db.ref('Control').on('value', (snapshot) => {
@@ -263,6 +385,8 @@ onMounted(() => {
                 const deviceKey = `PLUG${device.id}`;
                 if (controls[deviceKey] !== undefined) {
                     device.isOn = controls[deviceKey];
+                    powerStateKnown.add(device.id);
+                    updateDeviceUptime(device, device.isOn);
                 }
             });
         });
@@ -276,7 +400,38 @@ onMounted(() => {
                     status[deviceKey] &&
                     !(device.dailyLimit > 0 && device.usageKwh >= device.dailyLimit)
                 ) {
-                    device.status = status[deviceKey] === 'ON' ? 'Active' : 'Standby';
+                    const isOn = status[deviceKey] === 'ON';
+                    device.status = isOn ? 'Active' : 'Standby';
+                    device.isOn = isOn;
+                    powerStateKnown.add(device.id);
+                    updateDeviceUptime(device, isOn);
+                }
+            });
+        });
+
+        window.db.ref('Uptime').on('value', (snapshot) => {
+            const uptimes = snapshot.val() || {};
+            const rootOnlineSince = Number(uptimes.online_since);
+            const rootUptimeSeconds = Number(uptimes.uptime_seconds);
+
+            devices.value.forEach((device) => {
+                const key = `PLUG${device.id}`;
+                const node = uptimes[key] || {};
+                const onlineSince = Number(node.online_since) || (Number.isFinite(rootOnlineSince) && rootOnlineSince > 0 ? rootOnlineSince : null);
+                const uptimeSec = (Number.isFinite(Number(node.uptime_seconds)) && Number(node.uptime_seconds) > 0)
+                    ? Number(node.uptime_seconds)
+                    : (Number.isFinite(rootUptimeSeconds) && rootUptimeSeconds > 0 ? rootUptimeSeconds : null);
+
+                if (onlineSince && device.isOn) {
+                    uptimeSince.set(device.id, onlineSince);
+                    device.uptime = formatUptime((Date.now() - onlineSince) / 1000);
+                } else if (uptimeSec && device.isOn) {
+                    const calculatedSince = Date.now() - (uptimeSec * 1000);
+                    uptimeSince.set(device.id, calculatedSince);
+                    device.uptime = formatUptime(uptimeSec);
+                } else if (!device.isOn) {
+                    uptimeSince.delete(device.id);
+                    device.uptime = 'N/A';
                 }
             });
         });
@@ -293,12 +448,14 @@ onMounted(() => {
     window.addEventListener('focus', handleStorageChange);
 
     onUnmounted(() => {
+        if (uptimeTimer) window.clearInterval(uptimeTimer);
         if (window.db) {
             window.db.ref('Live').off();
             window.db.ref('plugs').off();
             window.db.ref('Energy').off();
             window.db.ref('Control').off();
             window.db.ref('Status').off();
+            window.db.ref('Uptime').off();
         }
         window.removeEventListener('storage', handleStorageChange);
         window.removeEventListener('focus', handleStorageChange);
@@ -314,10 +471,10 @@ onMounted(() => {
     >
         <Sidebar />
 
-        <div class="flex-1 overflow-auto transition-[margin] duration-300" style="margin-left: var(--sidebar-width, 4rem);">
-            <div class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div class="flex-1 overflow-y-auto h-screen transition-[margin] duration-300" style="margin-left: var(--sidebar-width, 4rem);">
+            <div class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
                 <header
-                    class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+                    class="sticky top-0 z-50 mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-4 shadow-sm shadow-slate-200/60 backdrop-blur-xl transition-colors duration-300 dark:border-gray-800 dark:bg-gray-950/80 dark:shadow-none sm:px-6"
                 >
                     <div>
                         <h1
@@ -380,6 +537,7 @@ onMounted(() => {
                                 :daily-limit="device.dailyLimit"
                                 :daily-kwh="device.dailyKwh"
                                 :usage-kwh="device.usageKwh"
+                                :uptime="device.uptime"
                                 :threshold-type="device.thresholdType"
                                 :is-on="device.isOn"
                                 class="flex-1 border-gray-200 shadow-md dark:border-gray-800"

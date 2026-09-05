@@ -47,6 +47,11 @@ firebase-realtime-db/
 │       ├── daily_kwh: 1.80
 │       ├── weekly_kwh: 10.20
 │       └── monthly_kwh: 42.10
+├── Uptime/
+│   ├── online_since: 1771772060000
+│   ├── uptime_seconds: 3600
+│   ├── formatted: "1h 0m"
+│   └── last_updated: 1771775660000
 └── History/
     ├── PLUG1/
     │   └── [timestamp]: { "power": 1100 }

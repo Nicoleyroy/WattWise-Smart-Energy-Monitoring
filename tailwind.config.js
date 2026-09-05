@@ -16,6 +16,22 @@ export default {
             fontFamily: {
                 sans: ['Figtree', ...defaultTheme.fontFamily.sans],
             },
+            colors: {
+                charcoal: {
+                    DEFAULT: '#0b1220',
+                    900: '#060d1b',
+                    800: '#0b1220',
+                    700: '#1a2438',
+                },
+                electric: {
+                    DEFAULT: '#0070f3',
+                    hover: '#0060d9',
+                },
+                'muted-green': {
+                    DEFAULT: '#4ade80',
+                    low: '#14532d',
+                },
+            },
         },
     },
 

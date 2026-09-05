@@ -10,14 +10,14 @@ const props = defineProps({
     device: { type: Object, required: true }
 })
 
-const currentTab = ref('settings')
+const currentTab = ref('monitoring')
 
 const deviceData = ref({
     name: props.device?.name || 'Smart Device',
     plugId: props.device?.id || 1,
     status: 'online',
     power: 0,
-   dailyLimit: 0,
+    dailyLimit: 0,
     dailyKwh: 0,
     thresholdType: 'daily',
 })
@@ -27,11 +27,32 @@ const isFirebaseConnected = ref(false)
 const isDeviceOn = ref(true)
 const showThresholdModal = ref(false)
 const dailyLimitForm = ref({ kwh: 0, type: 'daily' }), isSavingThreshold = ref(false), thresholdMessage = ref('')
+const monthlyBillForm = ref({ baselineKwh: 0, ratePerKwh: 0 })
+const isSavingMonthlyBill = ref(false)
+const monthlyBillMessage = ref('')
+const showEnergyExportModal = ref(false)
+const isExportingEnergy = ref(false)
+const energyExportMessage = ref('')
+const todayIso = new Date().toISOString().slice(0, 10)
+const defaultStartIso = new Date(Date.now() - (6 * 24 * 60 * 60 * 1000)).toISOString().slice(0, 10)
+const energyExportForm = ref({
+    startDate: defaultStartIso,
+    endDate: todayIso,
+})
 const latestPlugData = ref({})
 const latestEnergyData = ref({})
 const isEditingDeviceName = ref(false)
 const deviceNameInput = ref('')
 const isSavingDeviceName = ref(false)
+
+const MAX_VALID_POWER_W = 1_000_000
+
+const sanitizePower = (value, fallback = 0) => {
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed)) return fallback
+    if (Math.abs(parsed) >= MAX_VALID_POWER_W) return fallback
+    return parsed
+}
 
 // ── Schedule state ──
 const schedules = ref([])
@@ -306,6 +327,24 @@ const formatDateTime = (dateStr) => {
     })
 }
 
+const formatDateShort = (dateStr) => {
+    if (!dateStr) return '—'
+    return new Date(dateStr).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+    })
+}
+
+const formatTimeShort = (dateStr) => {
+    if (!dateStr) return '—'
+    return new Date(dateStr).toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+    })
+}
+
 const filteredScheduleHistory = computed(() => {
     const archivedView = scheduleHistoryView.value === 'archived'
     return scheduleHistory.value.filter((item) => Boolean(item.archived) === archivedView)
@@ -359,10 +398,8 @@ const escapeCsv = (value) => {
 
 const exportScheduleHistory = () => {
     const headers = ['Event', 'Schedule', 'Window Start', 'Window End', 'Logged At', 'Status', 'View']
-    const lines = [headers.join(',')]
-
-    filteredScheduleHistory.value.forEach((item) => {
-        const row = [
+    const records = filteredScheduleHistory.value.map((item) => {
+        return [
             formatHistoryEvent(item.event),
             item.name || 'Schedule',
             formatDateTime(item.start_time),
@@ -370,9 +407,24 @@ const exportScheduleHistory = () => {
             formatDateTime(item.timestamp),
             formatScheduleStatus(item.status || 'event'),
             scheduleHistoryView.value,
-        ].map(escapeCsv)
-        lines.push(row.join(','))
+        ]
     })
+
+    const reportRows = [
+        ['Report', 'Schedule History Export'],
+        ['Device', deviceData.value.name || 'Device'],
+        ['Device ID', `PLUG${props.device.id}`],
+        ['View', scheduleHistoryView.value],
+        ['Exported At', new Date().toISOString()],
+        [],
+        headers,
+        ...records,
+        [],
+        ['Footer'],
+        ['Total Records', records.length],
+    ]
+
+    const lines = reportRows.map((row) => row.map(escapeCsv).join(','))
 
     const csv = `\uFEFF${lines.join('\n')}`
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
@@ -388,6 +440,62 @@ const exportScheduleHistory = () => {
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
+}
+
+const exportEnergyByDate = async () => {
+    energyExportMessage.value = ''
+
+    if (!energyExportForm.value.startDate || !energyExportForm.value.endDate) {
+        energyExportMessage.value = 'Please select both start and end dates.'
+        return
+    }
+
+    if (energyExportForm.value.endDate < energyExportForm.value.startDate) {
+        energyExportMessage.value = 'End date cannot be earlier than start date.'
+        return
+    }
+
+    isExportingEnergy.value = true
+    try {
+        const response = await axios.get(`/api/devices/${props.device.id}/energy/export`, {
+            params: {
+                start_date: energyExportForm.value.startDate,
+                end_date: energyExportForm.value.endDate,
+            },
+            responseType: 'blob',
+        })
+
+        const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' })
+        const url = URL.createObjectURL(blob)
+
+        const defaultName = `${(deviceData.value.name || 'device').replace(/\s+/g, '_')}_energy_${energyExportForm.value.startDate}_to_${energyExportForm.value.endDate}.csv`
+        const disposition = response.headers?.['content-disposition'] || ''
+        const match = disposition.match(/filename="?([^\";]+)"?/i)
+        const filename = match?.[1] || defaultName
+
+        const link = document.createElement('a')
+        link.href = url
+        link.setAttribute('download', filename)
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+
+        energyExportMessage.value = 'Export downloaded successfully.'
+        setTimeout(() => {
+            showEnergyExportModal.value = false
+            energyExportMessage.value = ''
+        }, 1000)
+    } catch (error) {
+        const status = error.response?.status
+        energyExportMessage.value = status === 404
+            ? 'No data found for the selected date range. Try a wider range.'
+            : status === 422
+                ? 'Invalid date range. Please check your selected dates.'
+                : 'Failed to export energy data.'
+    } finally {
+        isExportingEnergy.value = false
+    }
 }
 
 watch(scheduleHistoryView, () => {
@@ -423,6 +531,35 @@ const refreshThresholdUsage = () => {
     deviceData.value.dailyKwh = getUsageByThresholdType(activeType, latestEnergyData.value, latestPlugData.value)
 }
 
+const fetchMonthlyBill = async () => {
+    try {
+        const response = await axios.get(`/api/devices/${props.device.id}/monthly-bill`)
+        const bill = response.data?.data
+        if (bill) {
+            monthlyBillForm.value.baselineKwh = Number(bill.baseline_kwh || 0)
+            monthlyBillForm.value.ratePerKwh = Number(bill.rate_per_kwh || 0)
+        }
+    } catch (error) {
+        console.error('Failed to load monthly bill details:', error)
+    }
+}
+
+const saveMonthlyBill = async () => {
+    isSavingMonthlyBill.value = true
+    monthlyBillMessage.value = ''
+    try {
+        await axios.post(`/api/devices/${props.device.id}/monthly-bill`, {
+            baseline_kwh: monthlyBillForm.value.baselineKwh,
+            rate_per_kwh: monthlyBillForm.value.ratePerKwh,
+        })
+        monthlyBillMessage.value = 'Monthly bill details saved.'
+    } catch (error) {
+        monthlyBillMessage.value = error.response?.data?.message || 'Unable to save monthly bill details.'
+    } finally {
+        isSavingMonthlyBill.value = false
+    }
+}
+
 // ── Device name ──
 onMounted(() => {
     const savedName = localStorage.getItem(`device_${props.device.id}_name`)
@@ -430,6 +567,7 @@ onMounted(() => {
     fetchSchedules()
     fetchScheduleHistory()
     fetchDeviceThreshold()
+    fetchMonthlyBill()
 
     if (window.db) {
         isFirebaseConnected.value = true
@@ -439,9 +577,9 @@ onMounted(() => {
             if (!data) return
             voltage.value = data.voltage || 0
             current.value = data.current || 0
-            power.value = data.power || 0
+            power.value = sanitizePower(data.power, power.value)
             energy.value = data.energy || 0
-            deviceData.value.power = data.power || 0
+            deviceData.value.power = sanitizePower(data.power, deviceData.value.power)
         })
         window.db.ref(`Control/${deviceKey}`).on('value', (snapshot) => {
             const state = snapshot.val()
@@ -532,6 +670,11 @@ const formattedVoltage = computed(() => voltage.value.toFixed(1))
 const formattedCurrent = computed(() => current.value.toFixed(2))
 const formattedPower = computed(() => power.value.toFixed(1))
 const formattedEnergy = computed(() => energy.value.toFixed(2))
+const currentMonthlyKwh = computed(() => Math.max(0, Number(latestEnergyData.value?.monthly_kwh ?? latestPlugData.value?.monthly_kwh ?? 0)))
+const baselineMonthlyBill = computed(() => monthlyBillForm.value.baselineKwh * monthlyBillForm.value.ratePerKwh)
+const currentMonthlyBill = computed(() => currentMonthlyKwh.value * monthlyBillForm.value.ratePerKwh)
+const monthlySavings = computed(() => baselineMonthlyBill.value - currentMonthlyBill.value)
+const formatCurrency = (amount) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(amount) || 0)
 const controlActionLabel = computed(() => (isDeviceOn.value ? 'OFF' : 'ON'))
 const controlActionClass = computed(() => (
     isDeviceOn.value
@@ -544,7 +687,7 @@ const controlActionClass = computed(() => (
     <Head :title="`${deviceData.name} Settings`" />
     <div class="flex min-h-screen bg-white dark:bg-gray-950 transition-colors duration-300">
         <Sidebar />
-        <div class="flex-1 overflow-auto bg-white dark:bg-gray-950 transition-all duration-300" style="margin-left: var(--sidebar-width, 4rem);">
+        <div class="flex-1 overflow-y-auto h-screen bg-white dark:bg-gray-950 transition-all duration-300" style="margin-left: var(--sidebar-width, 4rem);">
             <div class="mx-auto max-w-7xl px-6 py-8">
                 <Link href="/dashboard" class="inline-flex items-center gap-2 text-cyan-500 dark:text-cyan-400 hover:text-cyan-600 dark:hover:text-cyan-300 mb-8 transition-colors group">
                     <ArrowLeft class="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
@@ -552,18 +695,14 @@ const controlActionClass = computed(() => (
                 </Link>
 
                 <!-- Device Header -->
-                <div class="mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
-                    <div class="flex items-start justify-between">
-                        <div class="flex items-center gap-6">
-                            <div class="relative w-20 h-20">
-                                <div class="absolute inset-0 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg transform rotate-45 shadow-lg shadow-cyan-500/20"></div>
-                                <div class="absolute inset-0 flex items-center justify-center">
-                                    <Zap class="w-10 h-10 text-white relative z-10" />
-                                </div>
-                            </div>
-                            <div>
+                <div class="sticky top-0 z-50 -mx-6 mb-8 border-b border-gray-200/90 bg-white/95 px-6 pt-4 pb-0 shadow-lg shadow-gray-900/5 backdrop-blur-md transition-colors dark:border-gray-800 dark:bg-gray-950/95">
+                    <div class="flex items-start justify-between gap-4">
+                        <div class="flex min-w-0 items-center gap-4 sm:gap-6">
+                            
+                            <div class="min-w-0">
+                                <p class="mb-1 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-600 dark:text-cyan-400">Plug Settings</p>
                                 <div v-if="!isEditingDeviceName" class="flex items-center gap-2">
-                                    <h1 class="text-3xl font-extrabold text-gray-900 dark:text-gray-100 tracking-tight">{{ deviceData.name }}</h1>
+                                    <h1 class="truncate text-xl font-extrabold tracking-tight text-gray-900 dark:text-gray-100 sm:text-3xl">{{ deviceData.name }}</h1>
                                     <button @click="startEditDeviceName"
                                         class="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors"
                                         title="Rename device">
@@ -586,31 +725,31 @@ const controlActionClass = computed(() => (
                             </div>
                         </div>
                         <button @click="handleTurnOff"
-                            class="group flex items-center gap-3 px-6 py-3.5 rounded-lg transition-all font-bold text-base shadow-lg hover:shadow-xl active:scale-95"
+                            class="group shrink-0 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-bold transition-all shadow-lg hover:shadow-xl active:scale-95 sm:gap-3 sm:px-6 sm:py-3.5 sm:text-base"
                             :class="controlActionClass">
                             <Power class="w-5 h-5 group-hover:scale-110 transition-transform" />
-                            <span>{{ controlActionLabel }}</span>
+                            <span class="hidden sm:inline">{{ controlActionLabel }}</span>
                         </button>
                     </div>
 
                     <!-- Tabs -->
-                    <div class="flex items-center gap-2 mt-8">
-                        <button @click="currentTab = 'settings'"
-                            class="flex items-center gap-2 px-6 py-3 rounded-t-xl font-bold transition-all shadow-sm"
-                            :class="currentTab === 'settings' ? 'bg-cyan-500 text-white shadow-cyan-500/20' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'">
-                            <Settings class="w-4 h-4" /> General Settings
-                        </button>
+                    <div class="mt-6 flex items-center gap-2">
                         <button @click="currentTab = 'monitoring'"
-                            class="flex items-center gap-2 px-6 py-3 rounded-t-xl font-bold transition-all shadow-sm"
+                            class="flex items-center gap-2 rounded-t-xl px-4 py-3 text-sm font-bold transition-all shadow-sm sm:px-6"
                             :class="currentTab === 'monitoring' ? 'bg-cyan-500 text-white shadow-cyan-500/20' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'">
                             <Activity class="w-4 h-4" /> Live Monitoring
+                        </button>
+                        <button @click="currentTab = 'settings'"
+                            class="flex items-center gap-2 rounded-t-xl px-4 py-3 text-sm font-bold transition-all shadow-sm sm:px-6"
+                            :class="currentTab === 'settings' ? 'bg-cyan-500 text-white shadow-cyan-500/20' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'">
+                            <Settings class="w-4 h-4" /> General Settings
                         </button>
                     </div>
                 </div>
 
                 <!-- Live Monitoring Tab -->
                 <div v-if="currentTab === 'monitoring'">
-                    <DeviceMonitoringPanel :deviceId="device.id" :deviceName="deviceData.name" />
+                    <DeviceMonitoringPanel :deviceId="props.device.id" :deviceName="deviceData.name" />
                 </div>
 
                 <!-- General Settings Tab -->
@@ -640,24 +779,114 @@ const controlActionClass = computed(() => (
                         </div>
                     </div>
 
-                  <!-- Energy Limit Configuration -->
-                    
-                    <div class="mb-8">
-                        <div class="flex items-center justify-between mb-6">
-                            <h2 class="text-2xl font-black text-gray-900 dark:text-gray-100 tracking-tight">Energy Limit</h2>
-                           <button @click="showThresholdModal = true"
-                                class="px-4 py-2.5 bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 rounded-lg border border-cyan-500/30 hover:bg-cyan-500/20 dark:hover:bg-cyan-500/30 transition-colors font-bold text-sm">
-                                Edit Limit
-                            </button>
+                    <!-- Energy Limit + Export -->
+                    <div class="mb-10 grid grid-cols-1 xl:grid-cols-2 gap-8 items-stretch">
+                        <div>
+                            <div class="flex items-center justify-between mb-4">
+                                <h2 class="text-2xl font-black text-gray-900 dark:text-gray-100 tracking-tight">Energy Limit</h2>
+                                <button @click="showThresholdModal = true"
+                                    class="inline-flex items-center justify-center px-4 py-2.5 min-w-[128px] bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 rounded-xl border border-cyan-500/30 hover:bg-cyan-500/20 dark:hover:bg-cyan-500/30 transition-colors font-bold text-sm">
+                                    Edit Limit
+                                </button>
+                            </div>
+                            <div class="bg-white dark:bg-gray-900 border border-cyan-400/50 dark:border-cyan-500/30 rounded-2xl p-7 text-center shadow-sm min-h-[238px] flex flex-col justify-center">
+                                <p class="text-5xl font-black text-gray-900 dark:text-gray-100 leading-none">{{ deviceData.dailyKwh.toFixed(3) }} / {{ deviceData.dailyLimit.toFixed(3) }}</p>
+                                <p class="text-sm font-black text-cyan-600 dark:text-cyan-400 mt-3 uppercase tracking-[0.18em]">{{ deviceData.thresholdType }} consumption / limit</p>
+                                <p class="text-sm text-gray-500 dark:text-gray-500 mt-3 font-medium">Only one threshold is active at a time: daily, weekly, or monthly.</p>
+                            </div>
                         </div>
-                        <div class="bg-white dark:bg-gray-900 border border-cyan-400/50 dark:border-cyan-500/30 rounded-xl p-6 max-w-sm text-center shadow-sm">
-                             <p class="text-4xl font-black text-gray-900 dark:text-gray-100">{{ deviceData.dailyKwh.toFixed(3) }} / {{ deviceData.dailyLimit.toFixed(3) }}</p>
-                            <p class="text-sm font-bold text-cyan-600 dark:text-cyan-400 mt-1 uppercase tracking-widest">{{ deviceData.thresholdType }} consumption / limit</p>
-                            <p class="text-xs text-gray-500 dark:text-gray-500 mt-2 font-medium">Only one threshold is active at a time: daily, weekly, or monthly.</p>
+
+                        <div>
+                            <div class="flex items-center justify-between mb-4">
+                                <h2 class="text-2xl font-black text-gray-900 dark:text-gray-100 tracking-tight">Energy Data Export</h2>
+                            </div>
+                            <div class="bg-white dark:bg-gray-900 border border-cyan-400/50 dark:border-cyan-500/30 rounded-2xl p-7 shadow-sm min-h-[238px] flex flex-col justify-center">
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                                    <div>
+                                        <label class="block text-xs font-black text-gray-500 dark:text-gray-500 uppercase tracking-widest mb-2">Start Date</label>
+                                        <input
+                                            v-model="energyExportForm.startDate"
+                                            type="date"
+                                            class="w-full px-4 py-3.5 bg-gray-50 dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all text-gray-900 dark:text-gray-100 font-bold"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-xs font-black text-gray-500 dark:text-gray-500 uppercase tracking-widest mb-2">End Date</label>
+                                        <input
+                                            v-model="energyExportForm.endDate"
+                                            type="date"
+                                            class="w-full px-4 py-3.5 bg-gray-50 dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all text-gray-900 dark:text-gray-100 font-bold"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <button @click="exportEnergyByDate" :disabled="isExportingEnergy"
+                                            class="w-full inline-flex items-center justify-center gap-2 px-4 py-3.5 bg-cyan-600 text-white rounded-xl hover:bg-cyan-500 transition-all font-bold uppercase tracking-wider text-sm shadow-lg shadow-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed">
+                                            <Download class="w-4 h-4" />
+                                            {{ isExportingEnergy ? 'Exporting...' : 'Export CSV' }}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <p class="mt-3 text-xs text-gray-500 dark:text-gray-400 font-medium">Exports readings for this device only, within the selected date range.</p>
+
+                                <div v-if="energyExportMessage" class="mt-4 text-sm px-4 py-2.5 rounded-lg font-bold"
+                                    :class="energyExportMessage.includes('successfully') ? 'bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400' : 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400'">
+                                    {{ energyExportMessage }}
+                                </div>
+                            </div>
                         </div>
                     </div>
 
                     <!-- ─── Scheduling Section ─── -->
+                    <div class="mb-10">
+                        <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-4">
+                            <div>
+                                <h2 class="text-2xl font-black text-gray-900 dark:text-gray-100 tracking-tight">Monthly Electricity Bill</h2>
+                                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Compare this plug's live monthly consumption with your expected monthly use.</p>
+                            </div>
+                            <span class="text-xs font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-widest">Current month</span>
+                        </div>
+
+                        <div class="bg-white dark:bg-gray-900 border border-cyan-400/50 dark:border-cyan-500/30 rounded-2xl p-6 shadow-sm">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                <div>
+                                    <label class="block text-xs font-black text-gray-500 dark:text-gray-500 uppercase tracking-widest mb-2">Expected Monthly Usage (kWh)</label>
+                                    <input v-model.number="monthlyBillForm.baselineKwh" type="number" min="0" step="0.001" placeholder="e.g. 100" class="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all text-gray-900 dark:text-gray-100 font-bold" />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-black text-gray-500 dark:text-gray-500 uppercase tracking-widest mb-2">Electricity Rate (PHP per kWh)</label>
+                                    <input v-model.number="monthlyBillForm.ratePerKwh" type="number" min="0" step="0.0001" placeholder="e.g. 12.50" class="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all text-gray-900 dark:text-gray-100 font-bold" />
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+                                <div class="rounded-xl bg-gray-50 dark:bg-gray-800/60 p-4">
+                                    <p class="text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest">Consumed</p>
+                                    <p class="mt-2 text-2xl font-black text-gray-900 dark:text-gray-100">{{ currentMonthlyKwh.toFixed(3) }} <span class="text-sm text-gray-500">kWh</span></p>
+                                    <p class="mt-1 text-sm font-bold text-gray-600 dark:text-gray-300">{{ formatCurrency(currentMonthlyBill) }}</p>
+                                </div>
+                                <div class="rounded-xl bg-gray-50 dark:bg-gray-800/60 p-4">
+                                    <p class="text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest">Expected Bill</p>
+                                    <p class="mt-2 text-2xl font-black text-gray-900 dark:text-gray-100">{{ formatCurrency(baselineMonthlyBill) }}</p>
+                                    <p class="mt-1 text-sm font-bold text-gray-600 dark:text-gray-300">{{ monthlyBillForm.baselineKwh.toFixed(3) }} kWh target</p>
+                                </div>
+                                <div class="rounded-xl p-4" :class="monthlySavings >= 0 ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'bg-amber-50 dark:bg-amber-950/30'">
+                                    <p class="text-[11px] font-black uppercase tracking-widest" :class="monthlySavings >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'">{{ monthlySavings >= 0 ? 'Estimated Savings' : 'Over Expected Cost' }}</p>
+                                    <p class="mt-2 text-2xl font-black" :class="monthlySavings >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'">{{ formatCurrency(Math.abs(monthlySavings)) }}</p>
+                                    <p class="mt-1 text-sm font-bold" :class="monthlySavings >= 0 ? 'text-emerald-700/80 dark:text-emerald-400/80' : 'text-amber-700/80 dark:text-amber-400/80'">{{ (monthlyBillForm.baselineKwh - currentMonthlyKwh).toFixed(3) }} kWh difference</p>
+                                </div>
+                            </div>
+
+                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-6">
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Rate is measured per kWh, not per watt. Values are saved separately for each plug and reset for a new month.</p>
+                                <button @click="saveMonthlyBill" :disabled="isSavingMonthlyBill" class="shrink-0 px-5 py-3 bg-cyan-600 text-white rounded-xl hover:bg-cyan-500 transition-all font-bold text-sm shadow-lg shadow-cyan-500/20 disabled:opacity-50">{{ isSavingMonthlyBill ? 'Saving...' : 'Save Bill Details' }}</button>
+                            </div>
+                            <p v-if="monthlyBillMessage" class="mt-3 text-sm font-bold" :class="monthlyBillMessage.includes('saved') ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'">{{ monthlyBillMessage }}</p>
+                        </div>
+                    </div>
+
                     <div class="mb-8">
                         <div class="flex items-center justify-between mb-6">
                             <h2 class="text-2xl font-black text-gray-900 dark:text-gray-100 tracking-tight">Scheduling</h2>
@@ -692,9 +921,6 @@ const controlActionClass = computed(() => (
                                 <!-- Name -->
                                 <div class="flex items-start justify-between mb-5">
                                     <div class="flex items-center gap-3">
-                                        <div class="p-2 rounded-lg bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400">
-                                            <Calendar class="w-5 h-5" />
-                                        </div>
                                         <h3 class="font-black text-gray-900 dark:text-gray-100 truncate flex-1 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">{{ schedule.name }}</h3>
                                     </div>
                                     <span class="shrink-0 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border"
@@ -789,53 +1015,68 @@ const controlActionClass = computed(() => (
                                 No {{ scheduleHistoryView }} schedule history yet.
                             </div>
 
-                            <div v-else class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden shadow-sm">
+                            <div v-else class="bg-white dark:bg-gray-900 border border-gray-200/80 dark:border-gray-800 rounded-2xl overflow-hidden shadow-sm">
                                 <div class="overflow-x-auto">
                                     <table class="min-w-full text-sm">
-                                        <thead class="bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-800">
+                                        <thead class="bg-slate-50 dark:bg-gray-800/70 border-b border-gray-200 dark:border-gray-800">
                                             <tr>
-                                                <th class="px-4 py-3 text-left text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">#</th>
-                                                <th class="px-4 py-3 text-left text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Activity</th>
-                                                <th class="px-4 py-3 text-left text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Schedule Name</th>
-                                                <th class="px-4 py-3 text-left text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Time Window</th>
-                                                <th class="px-4 py-3 text-left text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Logged At</th>
-                                                <th class="px-4 py-3 text-left text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">State</th>
-                                                <th class="px-4 py-3 text-right text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Actions</th>
+                                                <th class="px-4 py-3.5 text-left text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">#</th>
+                                                <th class="px-4 py-3.5 text-left text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Activity</th>
+                                                <th class="px-4 py-3.5 text-left text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Schedule</th>
+                                                <th class="px-4 py-3.5 text-left text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Window</th>
+                                                <th class="px-4 py-3.5 text-left text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Logged</th>
+                                                <th class="px-4 py-3.5 text-left text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">State</th>
+                                                <th class="px-4 py-3.5 text-right text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Action</th>
                                             </tr>
                                         </thead>
                                         <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-                                            <tr v-for="(item, index) in paginatedScheduleHistory" :key="item.id" class="hover:bg-gray-50/70 dark:hover:bg-gray-800/40 transition-colors">
-                                                <td class="px-4 py-3 align-top text-xs font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                                            <tr v-for="(item, index) in paginatedScheduleHistory" :key="item.id" class="hover:bg-slate-50/80 dark:hover:bg-gray-800/40 transition-colors">
+                                                <td class="px-4 py-4 align-top text-xs font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">
                                                     {{ scheduleHistoryRowStart + index }}
                                                 </td>
-                                                <td class="px-4 py-3 align-top">
-                                                    <span class="inline-flex px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest"
+                                                <td class="px-4 py-4 align-top">
+                                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border"
                                                         :class="getHistoryEventClass(item.event)">
+                                                        <span class="h-1.5 w-1.5 rounded-full bg-current opacity-70"></span>
                                                         {{ formatHistoryEvent(item.event) }}
                                                     </span>
                                                 </td>
-                                                <td class="px-4 py-3 align-top font-bold text-gray-900 dark:text-gray-100">
-                                                    {{ item.name || 'Schedule' }}
+                                                <td class="px-4 py-4 align-top">
+                                                    <div class="font-bold text-gray-900 dark:text-gray-100">
+                                                        {{ item.name || 'Schedule' }}
+                                                    </div>
+                                                    <div class="mt-1 text-[11px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+                                                        {{ formatDateShort(item.start_time) }}
+                                                    </div>
                                                 </td>
-                                                <td class="px-4 py-3 align-top text-xs text-gray-600 dark:text-gray-300">
-                                                    <div class="font-medium text-gray-800 dark:text-gray-200">{{ formatDateTime(item.start_time) }}</div>
-                                                    <div class="text-gray-400 dark:text-gray-500">to {{ formatDateTime(item.end_time) }}</div>
+                                                <td class="px-4 py-4 align-top text-xs text-gray-600 dark:text-gray-300">
+                                                    <div class="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-2.5 py-1.5">
+                                                        <span class="text-[10px] font-black uppercase tracking-wider text-cyan-600 dark:text-cyan-400">On</span>
+                                                        <span class="font-bold text-gray-800 dark:text-gray-200">{{ formatTimeShort(item.start_time) }}</span>
+                                                    </div>
+                                                    <div class="my-1 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">to</div>
+                                                    <div class="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-2.5 py-1.5">
+                                                        <span class="text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400">Off</span>
+                                                        <span class="font-bold text-gray-800 dark:text-gray-200">{{ formatTimeShort(item.end_time) }}</span>
+                                                    </div>
                                                 </td>
-                                                <td class="px-4 py-3 align-top text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap font-medium">
-                                                    {{ formatDateTime(item.timestamp) }}
+                                                <td class="px-4 py-4 align-top text-xs whitespace-nowrap">
+                                                    <div class="font-semibold text-gray-700 dark:text-gray-300">{{ formatDateShort(item.timestamp) }}</div>
+                                                    <div class="text-gray-500 dark:text-gray-400">{{ formatTimeShort(item.timestamp) }}</div>
                                                 </td>
-                                                <td class="px-4 py-3 align-top">
-                                                    <span class="inline-flex px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest"
+                                                <td class="px-4 py-4 align-top">
+                                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest"
                                                         :class="getHistoryStatusClass(item.status)">
+                                                        <span class="h-1.5 w-1.5 rounded-full bg-current opacity-70"></span>
                                                         {{ formatScheduleStatus(item.status || 'event') }}
                                                     </span>
                                                 </td>
-                                                <td class="px-4 py-3 align-top text-right">
+                                                <td class="px-4 py-4 align-top text-right">
                                                     <button
                                                         v-if="scheduleHistoryView === 'active'"
                                                         @click="archiveHistoryItem(item, true)"
                                                         :disabled="isUpdatingHistoryArchive"
-                                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-60">
+                                                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-60">
                                                         <Archive class="w-3 h-3" />
                                                         Archive
                                                     </button>
@@ -843,7 +1084,7 @@ const controlActionClass = computed(() => (
                                                         v-else
                                                         @click="archiveHistoryItem(item, false)"
                                                         :disabled="isUpdatingHistoryArchive"
-                                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border border-cyan-500/40 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 disabled:opacity-60">
+                                                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border border-cyan-500/40 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 disabled:opacity-60">
                                                         Restore
                                                     </button>
                                                 </td>
@@ -919,6 +1160,52 @@ const controlActionClass = computed(() => (
                             <button @click="saveThresholds" :disabled="isSavingThreshold"
                                 class="flex-1 px-6 py-3.5 bg-cyan-600 text-white rounded-xl hover:bg-cyan-500 transition-all font-bold uppercase tracking-wider text-sm shadow-lg shadow-cyan-500/20 disabled:opacity-50">
                                 {{ isSavingThreshold ? 'Saving...' : 'Save Changes' }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="showEnergyExportModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-all overflow-y-auto">
+                    <div class="bg-white dark:bg-gray-900 rounded-2xl max-w-md w-full p-8 border border-cyan-400/50 dark:border-cyan-500/30 shadow-2xl scale-in-center">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="p-2 rounded-lg bg-cyan-50 dark:bg-cyan-900/40 text-cyan-600 dark:text-cyan-400">
+                                <Download class="w-6 h-6" />
+                            </div>
+                            <h3 class="text-2xl font-black text-gray-900 dark:text-gray-100 tracking-tight">Export Energy Data</h3>
+                        </div>
+
+                        <div class="space-y-4 mb-6">
+                            <div>
+                                <label class="block text-xs font-black text-gray-500 dark:text-gray-500 uppercase tracking-widest mb-2">Start Date</label>
+                                <input
+                                    v-model="energyExportForm.startDate"
+                                    type="date"
+                                    class="w-full px-5 py-3.5 bg-gray-50 dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all text-gray-900 dark:text-gray-100 font-bold"
+                                />
+                            </div>
+                            <div>
+                                <label class="block text-xs font-black text-gray-500 dark:text-gray-500 uppercase tracking-widest mb-2">End Date</label>
+                                <input
+                                    v-model="energyExportForm.endDate"
+                                    type="date"
+                                    class="w-full px-5 py-3.5 bg-gray-50 dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all text-gray-900 dark:text-gray-100 font-bold"
+                                />
+                            </div>
+                        </div>
+
+                        <div v-if="energyExportMessage" class="mb-6 text-sm px-4 py-2.5 rounded-lg font-bold"
+                            :class="energyExportMessage.includes('successfully') ? 'bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400' : 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400'">
+                            {{ energyExportMessage }}
+                        </div>
+
+                        <div class="flex gap-4">
+                            <button @click="showEnergyExportModal = false"
+                                class="flex-1 px-6 py-3.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-all font-bold uppercase tracking-wider text-sm">
+                                Cancel
+                            </button>
+                            <button @click="exportEnergyByDate" :disabled="isExportingEnergy"
+                                class="flex-1 px-6 py-3.5 bg-cyan-600 text-white rounded-xl hover:bg-cyan-500 transition-all font-bold uppercase tracking-wider text-sm shadow-lg shadow-cyan-500/20 disabled:opacity-50">
+                                {{ isExportingEnergy ? 'Exporting...' : 'Export CSV' }}
                             </button>
                         </div>
                     </div>
@@ -1061,4 +1348,3 @@ const controlActionClass = computed(() => (
         </div>
     </div>
 </template>
-

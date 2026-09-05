@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
-import { Settings, Zap } from 'lucide-vue-next';
+import { Settings, Zap, Clock } from 'lucide-vue-next';
 
 const props = defineProps({
     deviceId: {
@@ -46,6 +46,10 @@ const props = defineProps({
     usageKwh: {
         type: Number,
         default: null,
+    },
+    uptime: {
+        type: String,
+        default: 'N/A',
     },
     isOn: {
         type: Boolean,
@@ -106,6 +110,27 @@ const progressColor = computed(() => {
     if (percentage >= 60) return 'bg-orange-500';
     return 'bg-teal-500';
 });
+
+const safePower = computed(() => {
+    const value = Number(props.currentPower);
+    return Number.isFinite(value) ? value : 0;
+});
+
+const formattedPowerValue = computed(() => {
+    const absolute = Math.abs(safePower.value);
+    if (absolute >= 1_000_000_000) return (safePower.value / 1_000_000_000).toFixed(2);
+    if (absolute >= 1_000_000) return (safePower.value / 1_000_000).toFixed(2);
+    if (absolute >= 1_000) return (safePower.value / 1_000).toFixed(2);
+    return safePower.value.toFixed(1);
+});
+
+const formattedPowerUnit = computed(() => {
+    const absolute = Math.abs(safePower.value);
+    if (absolute >= 1_000_000_000) return 'GW';
+    if (absolute >= 1_000_000) return 'MW';
+    if (absolute >= 1_000) return 'kW';
+    return 'W';
+});
 </script>
 
 <template>
@@ -114,11 +139,7 @@ const progressColor = computed(() => {
     >
         <div class="relative z-10 mb-8 flex items-start justify-between">
             <div class="flex items-center gap-4">
-                <div
-                    class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500 to-orange-400 shadow-sm shadow-orange-500/20 transition-transform duration-300 group-hover:scale-105"
-                >
-                    <Zap class="h-6 w-6 text-white" />
-                </div>
+                
 
                 <div>
                     <h3
@@ -190,9 +211,9 @@ const progressColor = computed(() => {
             </p>
             <div class="flex items-baseline gap-1">
                 <span class="text-5xl font-black tracking-tighter" :class="powerColor">
-                    {{ currentPower }}
+                    {{ formattedPowerValue }}
                 </span>
-                <span class="text-xl font-bold text-gray-400 dark:text-gray-500">W</span>
+                <span class="text-xl font-bold text-gray-400 dark:text-gray-500">{{ formattedPowerUnit }}</span>
             </div>
         </div>
 
@@ -232,6 +253,14 @@ const progressColor = computed(() => {
                     {{ dailyLimit > 0 ? dailyLimit.toFixed(3) : 'No' }} kWh limit
                 </span>
             </div>
+        </div>
+
+        <div class="relative z-10 mb-6 flex items-center justify-between border-t border-gray-100 pt-4 text-xs dark:border-gray-800">
+            <span class="flex items-center gap-2 font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                <Clock class="h-3.5 w-3.5" />
+                Uptime
+            </span>
+            <span class="font-semibold text-gray-700 dark:text-gray-300">{{ uptime }}</span>
         </div>
 
         <div

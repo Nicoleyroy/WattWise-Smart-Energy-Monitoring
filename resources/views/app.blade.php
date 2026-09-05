@@ -51,6 +51,7 @@
             
             // Create global database reference
             window.db = firebase.database();
+            window.dispatchEvent(new Event('firebase-ready'));
             
             console.log('Firebase initialized successfully');
         </script>

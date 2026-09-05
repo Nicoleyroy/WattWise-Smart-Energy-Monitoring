@@ -16,7 +16,7 @@ const showingMobileMenu = ref(false);
         <!-- Main Content Area -->
         <div class="flex-1 transition-[margin] duration-300" style="margin-left: var(--sidebar-width, 4rem);">
             <!-- Top Header Bar -->
-            <header class="bg-white dark:bg-gray-900 shadow-sm border-b border-slate-200 dark:border-gray-800 transition-colors duration-300">
+            <header class="sticky top-0 z-40 border-b border-slate-200/80 bg-white/80 shadow-sm backdrop-blur-xl transition-colors duration-300 dark:border-gray-800 dark:bg-gray-900/80">
                 <div class="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
                     <!-- Page Title (if provided via slot) -->
                     <div v-if="$slots.header">
