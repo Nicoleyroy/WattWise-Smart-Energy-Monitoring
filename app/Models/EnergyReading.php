@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
+use MongoDB\Laravel\Eloquent\Model;
 
 class EnergyReading extends Model
 {
@@ -22,6 +22,8 @@ class EnergyReading extends Model
         'frequency',
         'power_factor',
         'device_id',
+        'sampled_at',
+        'source',
     ];
 
     /**
@@ -36,5 +38,6 @@ class EnergyReading extends Model
         'energy' => 'decimal:4',
         'frequency' => 'decimal:2',
         'power_factor' => 'decimal:3',
+        'sampled_at' => 'datetime',
     ];
 }

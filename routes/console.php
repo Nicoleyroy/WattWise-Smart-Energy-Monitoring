@@ -14,6 +14,9 @@ Schedule::command('schedule:run-device-schedules')->everyMinute()->withoutOverla
 // Run device monitoring every minute for real-time alerts
 Schedule::command('devices:monitor')->everyMinute()->withoutOverlapping();
 
+// Store complete Firebase Live snapshots in MongoDB every minute
+Schedule::command('iot:sync-live')->everyMinute()->withoutOverlapping();
+
 // Reset threshold counters on their period boundaries
 Schedule::command('energy:reset-period daily')->dailyAt('00:00')->withoutOverlapping();
 Schedule::command('energy:reset-period weekly')->weeklyOn(1, '00:00')->withoutOverlapping();

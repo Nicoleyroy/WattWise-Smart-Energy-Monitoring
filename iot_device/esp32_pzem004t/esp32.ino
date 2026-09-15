@@ -53,7 +53,8 @@ unsigned long plug1OnTime = 0;
 unsigned long plug2OnTime = 0;
 
 unsigned long lastLog = 0;
-const int logInterval = 5000;
+const int logInterval = 60000;
+time_t deviceBootTime = 0;
 
 // ================= FORMAT UPTIME =================
 String formatUptimeStr(unsigned long seconds)
@@ -66,6 +67,31 @@ String formatUptimeStr(unsigned long seconds)
   if (days > 0) return String(days) + "d " + String(hours) + "h";
   if (hours > 0) return String(hours) + "h " + String(minutes) + "m";
   return String(minutes) + "m";
+}
+
+String twoDigit(unsigned long value)
+{
+  return value < 10 ? String("0") + value : String(value);
+}
+
+String formatDateShort(time_t timestamp)
+{
+  struct tm timeInfo;
+  localtime_r(&timestamp, &timeInfo);
+  return String(timeInfo.tm_mon + 1) + "/" + String(timeInfo.tm_mday) + "/" + String((timeInfo.tm_year + 1900) % 100);
+}
+
+String formatDateRange(time_t startTime, time_t endTime)
+{
+  return formatDateShort(startTime) + " - " + formatDateShort(endTime);
+}
+
+String formatUptimeLong(unsigned long seconds)
+{
+  const unsigned long days = seconds / 86400;
+  const unsigned long hours = (seconds % 86400) / 3600;
+  const unsigned long minutes = (seconds % 3600) / 60;
+  return String(days) + " days " + twoDigit(hours) + ":" + twoDigit(minutes) + " hrs";
 }
 
 // ================= SAFE READ =================
@@ -156,6 +182,7 @@ void setup()
     delay(500);
     Serial.print(".");
   }
+  deviceBootTime = time(nullptr) - static_cast<time_t>(millis() / 1000);
   Serial.println(" Time synced!");
 }
 
@@ -223,12 +250,18 @@ void loop()
     Firebase.RTDB.setString(&fbdo, "/Status/PLUG2", remote2 ? "ON" : "OFF");
 
     // ================= TOTAL DEVICE UPTIME =================
-    unsigned long totalDeviceUptimeSec = millis() / 1000;
-    String formattedUptime = formatUptimeStr(totalDeviceUptimeSec);
     time_t nowTime = time(nullptr);
+    unsigned long totalDeviceUptimeSec = nowTime >= deviceBootTime
+      ? static_cast<unsigned long>(nowTime - deviceBootTime)
+      : 0;
+    String formattedUptime = formatUptimeStr(totalDeviceUptimeSec);
+    String readableDate = formatDateRange(deviceBootTime, nowTime);
+    String readableTime = formatUptimeLong(totalDeviceUptimeSec);
 
     Firebase.RTDB.setInt(&fbdo, "/Uptime/uptime_seconds", totalDeviceUptimeSec);
     Firebase.RTDB.setString(&fbdo, "/Uptime/formatted", formattedUptime);
+    Firebase.RTDB.setString(&fbdo, "/Uptime/date", readableDate);
+    Firebase.RTDB.setString(&fbdo, "/Uptime/time", readableTime);
     if (nowTime > 100000) {
       Firebase.RTDB.setDouble(&fbdo, "/Uptime/last_updated", (double)nowTime * 1000);
     }
@@ -242,8 +275,17 @@ void loop()
     time_t now = time(nullptr);
     String timestamp = String(now);
 
-    Firebase.RTDB.setFloat(&fbdo, "/History/PLUG1/" + timestamp + "/power", power1);
-    Firebase.RTDB.setFloat(&fbdo, "/History/PLUG2/" + timestamp + "/power", power2);
+    Firebase.RTDB.setFloat(&fbdo, "/History/" + timestamp + "/PLUG1/voltage", voltage1);
+    Firebase.RTDB.setFloat(&fbdo, "/History/" + timestamp + "/PLUG1/current", current1);
+    Firebase.RTDB.setFloat(&fbdo, "/History/" + timestamp + "/PLUG1/power", power1);
+    Firebase.RTDB.setFloat(&fbdo, "/History/" + timestamp + "/PLUG1/energy", energy1);
+    Firebase.RTDB.setString(&fbdo, "/History/" + timestamp + "/PLUG1/device_id", "PLUG1");
+
+    Firebase.RTDB.setFloat(&fbdo, "/History/" + timestamp + "/PLUG2/voltage", voltage2);
+    Firebase.RTDB.setFloat(&fbdo, "/History/" + timestamp + "/PLUG2/current", current2);
+    Firebase.RTDB.setFloat(&fbdo, "/History/" + timestamp + "/PLUG2/power", power2);
+    Firebase.RTDB.setFloat(&fbdo, "/History/" + timestamp + "/PLUG2/energy", energy2);
+    Firebase.RTDB.setString(&fbdo, "/History/" + timestamp + "/PLUG2/device_id", "PLUG2");
   }
 
   // ================= OLED 1 (PLUG 1) =================

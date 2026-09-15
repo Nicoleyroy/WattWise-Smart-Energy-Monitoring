@@ -5,6 +5,7 @@
             "@/*": ["resources/js/*"],
             "ziggy-js": ["./vendor/tightenco/ziggy"]
         },
+        "ignoreDeprecations": "6.0",
         "skipLibCheck": true,
         "types": []
     },
