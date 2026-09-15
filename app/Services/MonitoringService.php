@@ -49,7 +49,7 @@ class MonitoringService
                 $this->checkAnomalies($deviceId, $data);
                 $this->checkConnectivity($deviceId, $data);
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error("Monitoring Service Error: " . $e->getMessage());
         }
     }
@@ -256,15 +256,21 @@ class MonitoringService
      */
     protected function sendNotification(int $deviceId, array $payload): void
     {
-        // 1. Send to Database for all users (or specific user)
-        $users = User::all();
-        foreach ($users as $user) {
-            $user->notify(new DeviceAlertNotification($payload));
+        // Firebase is the primary notification store for the MongoDB setup.
+        $this->firebase->pushNotification($deviceId, $payload);
+
+        // Laravel's database notification channel may require a SQL PDO connection.
+        try {
+            $users = User::all();
+            foreach ($users as $user) {
+                $user->notify(new DeviceAlertNotification($payload));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Database notification persistence skipped.', [
+                'error' => $e->getMessage(),
+            ]);
         }
 
-        // 2. Push to Firebase for real-time frontend listener
-        $this->firebase->pushNotification($deviceId, $payload);
-        
         Log::info("Notification sent for Device {$deviceId}: " . $payload['title']);
     }
 
