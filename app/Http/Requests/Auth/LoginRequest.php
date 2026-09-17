@@ -39,17 +39,30 @@ class LoginRequest extends FormRequest
      */
     public function authenticate(): void
     {
-        $this->ensureIsNotRateLimited();
+        try {
+            $this->ensureIsNotRateLimited();
+        } catch (\Throwable $exception) {
+            // A cache backend failure must not turn login into a server error.
+            report($exception);
+        }
 
         if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
-            RateLimiter::hit($this->throttleKey());
+            try {
+                RateLimiter::hit($this->throttleKey());
+            } catch (\Throwable $exception) {
+                report($exception);
+            }
 
             throw ValidationException::withMessages([
                 'email' => trans('auth.failed'),
             ]);
         }
 
-        RateLimiter::clear($this->throttleKey());
+        try {
+            RateLimiter::clear($this->throttleKey());
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
     }
 
     /**
