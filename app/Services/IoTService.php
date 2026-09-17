@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class IoTService
@@ -18,8 +19,8 @@ class IoTService
      */
     public function getSummaryData(): array
     {
-        $liveData = $this->firebase->getAllLiveData();
-        $plugData = $this->firebase->getAllPlugData();
+        $liveData = $this->cachedLiveData();
+        $plugData = $this->cachedPlugData();
         $totalPower = 0;
         $totalEnergy = 0;
 
@@ -43,9 +44,9 @@ class IoTService
      */
     public function getAllPorts(): array
     {
-        $liveData = $this->firebase->getAllLiveData();
-        $controls = $this->firebase->getAllControls();
-        $plugData = $this->firebase->getAllPlugData();
+        $liveData = $this->cachedLiveData();
+        $controls = $this->cachedControls();
+        $plugData = $this->cachedPlugData();
     
 
         $ports = [];
@@ -73,7 +74,28 @@ class IoTService
 
     public function togglePort(int $portId, bool $state): bool
     {
-        return $this->firebase->setControl($portId, $state);
+        $success = $this->firebase->setControl($portId, $state);
+
+        if ($success) {
+            Cache::forget('iot.controls');
+        }
+
+        return $success;
+    }
+
+    private function cachedLiveData(): array
+    {
+        return Cache::remember('iot.live_data', now()->addSeconds(3), fn (): array => $this->firebase->getAllLiveData());
+    }
+
+    private function cachedPlugData(): array
+    {
+        return Cache::remember('iot.plug_data', now()->addSeconds(3), fn (): array => $this->firebase->getAllPlugData());
+    }
+
+    private function cachedControls(): array
+    {
+        return Cache::remember('iot.controls', now()->addSeconds(3), fn (): array => $this->firebase->getAllControls());
     }
 
     public function setThreshold(int $deviceId, float $threshold, string $thresholdType = 'daily'): bool

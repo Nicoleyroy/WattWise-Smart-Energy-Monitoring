@@ -59,13 +59,16 @@ time_t deviceBootTime = 0;
 // ================= FORMAT UPTIME =================
 String formatUptimeStr(unsigned long seconds)
 {
-  if (seconds < 60) return String(seconds) + "s";
+  if (seconds < 60)
+    return String(seconds) + "s";
   unsigned long totalMinutes = seconds / 60;
   unsigned long days = totalMinutes / 1440;
   unsigned long hours = (totalMinutes % 1440) / 60;
   unsigned long minutes = totalMinutes % 60;
-  if (days > 0) return String(days) + "d " + String(hours) + "h";
-  if (hours > 0) return String(hours) + "h " + String(minutes) + "m";
+  if (days > 0)
+    return String(days) + "d " + String(hours) + "h";
+  if (hours > 0)
+    return String(hours) + "h " + String(minutes) + "m";
   return String(minutes) + "m";
 }
 
@@ -217,15 +220,23 @@ void loop()
   }
 
   // ================= RELAY LOGIC & UPTIME =================
-  if (remote1) {
-    if (plug1OnTime == 0) plug1OnTime = millis();
-  } else {
+  if (remote1)
+  {
+    if (plug1OnTime == 0)
+      plug1OnTime = millis();
+  }
+  else
+  {
     plug1OnTime = 0;
   }
 
-  if (remote2) {
-    if (plug2OnTime == 0) plug2OnTime = millis();
-  } else {
+  if (remote2)
+  {
+    if (plug2OnTime == 0)
+      plug2OnTime = millis();
+  }
+  else
+  {
     plug2OnTime = 0;
   }
 
@@ -252,8 +263,8 @@ void loop()
     // ================= TOTAL DEVICE UPTIME =================
     time_t nowTime = time(nullptr);
     unsigned long totalDeviceUptimeSec = nowTime >= deviceBootTime
-      ? static_cast<unsigned long>(nowTime - deviceBootTime)
-      : 0;
+                                             ? static_cast<unsigned long>(nowTime - deviceBootTime)
+                                             : 0;
     String formattedUptime = formatUptimeStr(totalDeviceUptimeSec);
     String readableDate = formatDateRange(deviceBootTime, nowTime);
     String readableTime = formatUptimeLong(totalDeviceUptimeSec);
@@ -262,7 +273,8 @@ void loop()
     Firebase.RTDB.setString(&fbdo, "/Uptime/formatted", formattedUptime);
     Firebase.RTDB.setString(&fbdo, "/Uptime/date", readableDate);
     Firebase.RTDB.setString(&fbdo, "/Uptime/time", readableTime);
-    if (nowTime > 100000) {
+    if (nowTime > 100000)
+    {
       Firebase.RTDB.setDouble(&fbdo, "/Uptime/last_updated", (double)nowTime * 1000);
     }
   }

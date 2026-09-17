@@ -9,21 +9,33 @@ const showingMobileMenu = ref(false);
 </script>
 
 <template>
-    <div class="flex min-h-screen bg-slate-100 dark:bg-gray-950 transition-colors duration-300">
+    <div class="flex min-h-screen bg-slate-50 dark:bg-gray-950 transition-colors duration-300">
         <!-- Sidebar -->
         <Sidebar />
 
         <!-- Main Content Area -->
         <div class="flex-1 transition-[margin] duration-300" style="margin-left: var(--sidebar-width, 4rem);">
             <!-- Top Header Bar -->
-            <header class="sticky top-0 z-40 border-b border-slate-200/80 bg-white/80 shadow-sm backdrop-blur-xl transition-colors duration-300 dark:border-gray-800 dark:bg-gray-900/80">
-                <div class="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+            <header class="sticky top-0 z-50 mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-4 shadow-sm shadow-slate-200/60 backdrop-blur-xl transition-colors duration-300 dark:border-gray-800 dark:bg-gray-950/80 dark:shadow-none sm:px-6">
+                <div class="flex items-center justify-between gap-3">
                     <!-- Page Title (if provided via slot) -->
-                    <div v-if="$slots.header">
+                    <div v-if="$slots.header" class="min-w-0">
                         <slot name="header" />
                     </div>
-                    <div v-else class="text-lg font-semibold text-slate-800 dark:text-gray-200">
-                        WattWise
+                    <div v-else class="flex items-center gap-3">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-100 text-cyan-600 dark:bg-cyan-900/40 dark:text-cyan-400">
+                            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="text-lg font-bold text-slate-900 dark:text-gray-100">
+                                WattWise
+                            </div>
+                            <div class="text-xs font-medium text-slate-500 dark:text-gray-400">
+                                Energy monitoring
+                            </div>
+                        </div>
                     </div>
 
                     <!-- User Dropdown (Desktop) -->
@@ -32,8 +44,11 @@ const showingMobileMenu = ref(false);
                             <template #trigger>
                                 <button
                                     type="button"
-                                    class="inline-flex items-center rounded-md border border-slate-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm font-medium text-slate-700 dark:text-gray-300 transition hover:bg-slate-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+                                    class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:focus:ring-offset-gray-950"
                                 >
+                                    <span class="flex h-7 w-7 items-center justify-center rounded-full bg-cyan-100 text-xs font-bold text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300">
+                                        {{ $page.props.auth.user.name.charAt(0).toUpperCase() }}
+                                    </span>
                                     {{ $page.props.auth.user.name }}
                                     <svg
                                         class="ml-2 h-4 w-4"
@@ -140,7 +155,7 @@ const showingMobileMenu = ref(false);
             </header>
 
             <!-- Page Content -->
-            <main class="p-4 sm:p-6 lg:p-8">
+            <main class="px-4 pb-4 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8">
                 <slot />
             </main>
         </div>

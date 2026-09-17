@@ -212,18 +212,18 @@ const deleteNotification = async (id) => {
         <Sidebar />
 
         <!-- Main Content -->
-        <main class="flex-1 bg-white dark:bg-gray-950 transition-[margin] duration-300 transition-colors" style="margin-left: var(--sidebar-width, 4rem);">
+        <main class="flex-1 bg-white dark:bg-gray-950 transition-colors duration-300" style="margin-left: var(--sidebar-width, 4rem);">
             <!-- Header -->
-            <header class="sticky top-0 z-50 mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-5 shadow-sm shadow-slate-200/60 backdrop-blur-xl transition-colors duration-300 dark:border-gray-800 dark:bg-gray-950/80 dark:shadow-none sm:px-6">
-                <div class="flex items-center justify-between">
+            <header class="sticky top-0 z-50 mb-6 rounded-xl border border-slate-200 bg-white shadow-sm transition-colors duration-300 dark:border-slate-800 dark:bg-slate-950">
+                <div class="flex items-start justify-between gap-4 px-6 py-5">
                     <div>
-                        <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-lg bg-cyan-100 dark:bg-cyan-900/40 flex items-center justify-center">
-                                <Bell class="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
-                            </div>
+                        <div class="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">
+                            Operations feed
+                        </div>
+                        <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
                             Notifications
                         </h1>
-                        <p class="text-sm text-gray-600 dark:text-gray-400 mt-1 ml-13 font-medium">
+                        <p class="mt-1 text-sm font-medium text-gray-600 dark:text-gray-400">
                             {{ unreadCount }} unread notification{{ unreadCount !== 1 ? 's' : '' }}
                         </p>
                     </div>
@@ -249,7 +249,7 @@ const deleteNotification = async (id) => {
                 </div>
 
                 <!-- Filter Tabs -->
-                <div class="flex gap-2 px-8 pb-4">
+                <div class="flex gap-2 overflow-x-auto border-t border-slate-200 px-6 py-3 dark:border-slate-800">
                     <button
                         @click="filterType = 'all'"
                         :class="[

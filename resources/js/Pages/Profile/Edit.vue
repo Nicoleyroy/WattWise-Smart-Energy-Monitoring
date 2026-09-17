@@ -30,10 +30,11 @@ const activeTab = ref('profile');
         <!-- Main Content -->
         <main class="flex-1 transition-[margin] duration-300" style="margin-left: var(--sidebar-width, 4rem);">
             <!-- Header -->
-            <header class="sticky top-0 z-50 mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-5 shadow-sm shadow-slate-200/60 backdrop-blur-xl transition-colors duration-300 dark:border-gray-800 dark:bg-gray-950/80 dark:shadow-none sm:px-6">
+            <header class="sticky top-0 z-50 mb-6 rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm transition-colors duration-300 dark:border-slate-800 dark:bg-slate-950">
                 <div>
-                    <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">Settings</h1>
-                    <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    <p class="mb-1 text-[11px] font-semibold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">Account control</p>
+                    <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Settings</h1>
+                    <p class="mt-1 text-sm font-medium text-gray-600 dark:text-gray-400">
                         Manage your account settings and preferences
                     </p>
                 </div>

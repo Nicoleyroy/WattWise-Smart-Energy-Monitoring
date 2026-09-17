@@ -53,18 +53,22 @@ const latestEnergy = ref({});
 const latestPlugs = ref({});
 const uptimeSince = new Map();
 const powerStateKnown = new Set();
+const visibleDeviceIds = ref(new Set([1]));
+const deviceSectionElements = new Map();
 let uptimeTimer = null;
+let summaryRefreshTimer = null;
+let deviceObserver = null;
 
 const formatUptime = (seconds) => {
     if (!Number.isFinite(seconds) || seconds < 0) return 'N/A';
-    if (seconds < 60) return `${Math.floor(seconds)}s`;
+    if (seconds < 60) return `${Math.floor(seconds)} seconds`;
     const totalMinutes = Math.floor(seconds / 60);
     const days = Math.floor(totalMinutes / 1440);
     const hours = Math.floor((totalMinutes % 1440) / 60);
     const minutes = totalMinutes % 60;
-    if (days > 0) return `${days}d ${hours}h`;
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    return `${minutes}m`;
+    if (days > 0) return `${days} ${days === 1 ? 'day' : 'days'}${hours ? ` ${hours} ${hours === 1 ? 'hour' : 'hours'}` : ''}`;
+    if (hours > 0) return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+    return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
 };
 
 const updateDeviceUptime = (device, isOn) => {
@@ -254,6 +258,25 @@ const refreshSummaryCards = () => {
     summaryCards.value[3].value = configuredLimits.toString();
 };
 
+const scheduleSummaryRefresh = () => {
+    if (summaryRefreshTimer) return;
+
+    summaryRefreshTimer = window.setTimeout(() => {
+        summaryRefreshTimer = null;
+        refreshSummaryCards();
+    }, 250);
+};
+
+const setDeviceSectionRef = (element, deviceId) => {
+    if (!element) {
+        deviceSectionElements.delete(deviceId);
+        return;
+    }
+
+    deviceSectionElements.set(deviceId, element);
+    deviceObserver?.observe(element);
+};
+
 onMounted(() => {
     fetchAlerts();
     devices.value.forEach((device) => {
@@ -290,7 +313,7 @@ onMounted(() => {
                 }
             });
 
-            refreshSummaryCards();
+            scheduleSummaryRefresh();
         });
 
         uptimeTimer = window.setInterval(() => {
@@ -344,7 +367,7 @@ onMounted(() => {
                 }
             });
 
-            refreshSummaryCards();
+            scheduleSummaryRefresh();
         });
 
         window.db.ref('Energy').on('value', (snapshot) => {
@@ -375,7 +398,7 @@ onMounted(() => {
                 }
             });
 
-            refreshSummaryCards();
+            scheduleSummaryRefresh();
         });
 
         window.db.ref('Control').on('value', (snapshot) => {
@@ -437,6 +460,22 @@ onMounted(() => {
         });
     }
 
+    deviceObserver = new IntersectionObserver(
+        (entries) => {
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                    visibleDeviceIds.value = new Set([
+                        ...visibleDeviceIds.value,
+                        Number(entry.target.dataset.deviceId),
+                    ]);
+                }
+            });
+        },
+        { rootMargin: '800px 0px' },
+    );
+
+    deviceSectionElements.forEach((element) => deviceObserver.observe(element));
+
     const handleStorageChange = () => {
         devices.value.forEach((device) => {
             const savedName = localStorage.getItem(`device_${device.id}_name`);
@@ -449,6 +488,9 @@ onMounted(() => {
 
     onUnmounted(() => {
         if (uptimeTimer) window.clearInterval(uptimeTimer);
+        if (summaryRefreshTimer) window.clearTimeout(summaryRefreshTimer);
+        deviceObserver?.disconnect();
+        deviceObserver = null;
         if (window.db) {
             window.db.ref('Live').off();
             window.db.ref('plugs').off();
@@ -474,17 +516,16 @@ onMounted(() => {
         <div class="flex-1 overflow-y-auto h-screen transition-[margin] duration-300" style="margin-left: var(--sidebar-width, 4rem);">
             <div class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
                 <header
-                    class="sticky top-0 z-50 mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-4 shadow-sm shadow-slate-200/60 backdrop-blur-xl transition-colors duration-300 dark:border-gray-800 dark:bg-gray-950/80 dark:shadow-none sm:px-6"
+                    class="sticky top-0 z-50 mb-6 rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm transition-colors duration-300 dark:border-slate-800 dark:bg-slate-950"
                 >
                     <div>
-                        <h1
-                            class="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-gray-100"
-                        >
+                        <p class="mb-1 text-[11px] font-semibold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">
+                            System overview
+                        </p>
+                        <h1 class="text-2xl font-bold tracking-tight text-slate-900 dark:text-gray-100">
                             Dashboard
                         </h1>
-                        <p
-                            class="mt-1 text-sm font-medium text-slate-500 dark:text-gray-400"
-                        >
+                        <p class="mt-1 text-sm font-medium text-slate-500 dark:text-gray-400">
                             Monitor your energy consumption in real-time
                         </p>
                     </div>
@@ -520,7 +561,9 @@ onMounted(() => {
                     <div
                         v-for="device in devices"
                         :key="device.id"
-                        class="mx-auto mb-16 grid max-w-7xl grid-cols-1 items-stretch gap-8 lg:grid-cols-3"
+                        :ref="(element) => setDeviceSectionRef(element, device.id)"
+                        :data-device-id="device.id"
+                        class="dashboard-device-section mx-auto mb-16 grid max-w-7xl grid-cols-1 items-stretch gap-8 lg:grid-cols-3"
                     >
                         <div class="flex h-full flex-col lg:col-span-1">
                             <div
@@ -549,7 +592,7 @@ onMounted(() => {
                         </div>
 
                         <div
-                            class="flex h-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition-colors duration-300 dark:border-gray-800 dark:bg-gray-900 lg:col-span-2"
+                                class="flex h-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition-colors duration-300 dark:border-gray-800 dark:bg-gray-900 lg:col-span-2"
                         >
                             <div
                                 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500"
@@ -558,7 +601,11 @@ onMounted(() => {
                                 {{ device.name }} - Power History
                             </div>
                             <div class="flex flex-1 items-center">
-                                <EnergyGraph :plug-id="device.id" height="380" />
+                                <EnergyGraph
+                                    v-if="visibleDeviceIds.has(device.id)"
+                                    :plug-id="device.id"
+                                    height="380"
+                                />
                             </div>
                         </div>
                     </div>
@@ -567,3 +614,11 @@ onMounted(() => {
         </div>
     </div>
 </template>
+
+<style scoped>
+.dashboard-device-section {
+    content-visibility: auto;
+    contain: layout paint style;
+    contain-intrinsic-size: 0 560px;
+}
+</style>

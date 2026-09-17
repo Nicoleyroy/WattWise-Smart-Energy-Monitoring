@@ -62,29 +62,16 @@ class IoTController extends Controller
 
         try {
             $deviceId = $request->input('device_id', 'unknown');
-            $latestReading = EnergyReading::where('device_id', $deviceId)
-                ->latest('created_at')
-                ->first();
 
-            if ($latestReading && $latestReading->created_at->gt(now()->subSeconds(60))) {
-                return response()->json([
-                    'success' => true,
-                    'stored' => false,
-                    'message' => 'Reading skipped; a reading was already stored within the last 60 seconds.',
-                    'data' => [
-                        'id' => $latestReading->id,
-                        'timestamp' => $latestReading->created_at->toIso8601String(),
-                    ],
-                ]);
-            }
-
-            // Store the reading
+            // Store every validated reading as a history record. Waiting 60 seconds
+            // between writes is not appropriate for energy-history data collection.
             $reading = EnergyReading::create([
                 'voltage' => $request->input('voltage'),
                 'current' => $request->input('current'),
                 'power' => $request->input('power'),
                 'energy' => $request->input('energy'),
                 'device_id' => $deviceId,
+                'source' => 'iot_api',
             ]);
 
             Log::info('ESP32 Energy Reading Stored', [
@@ -193,26 +180,27 @@ class IoTController extends Controller
             'end_date' => 'required|date|after_or_equal:start_date',
         ]);
 
-        $start = now()->parse($validated['start_date'])->startOfDay();
-        $end = now()->parse($validated['end_date'])->endOfDay();
+        $timezone = 'Asia/Manila';
+        $start = now($timezone)->parse($validated['start_date'])->startOfDay();
+        $end = now($timezone)->parse($validated['end_date'])->endOfDay();
         $deviceIdPatterns = $this->buildDeviceIdPatterns((string) $deviceId);
 
         $rows = EnergyReading::query()
             ->whereIn('device_id', $deviceIdPatterns)
-            ->whereBetween('created_at', [$start, $end])
+            ->where(function ($query) use ($start, $end) {
+                $query->whereBetween('created_at', [$start, $end])
+                    ->orWhereBetween('sampled_at', [$start, $end]);
+            })
             ->orderBy('created_at', 'asc')
             ->get([
                 'created_at',
+                'sampled_at',
                 'device_id',
                 'voltage',
                 'current',
                 'power',
                 'energy',
             ]);
-
-        $rows = $rows->unique(function ($row) {
-            return intdiv($row->created_at->getTimestamp(), 30 * 60);
-        })->values();
 
         if ($rows->isEmpty()) {
             return response()->json([
@@ -223,18 +211,19 @@ class IoTController extends Controller
 
         $filename = "device_{$deviceId}_energy_{$start->format('Ymd')}_to_{$end->format('Ymd')}.csv";
 
-        return response()->streamDownload(function () use ($rows, $deviceId, $start, $end) {
+        return response()->streamDownload(function () use ($rows, $deviceId, $start, $end, $timezone) {
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF");
 
             fputcsv($out, ['Report', 'Energy Data Export']);
             fputcsv($out, ['Device ID', "PLUG{$deviceId}"]);
             fputcsv($out, ['Date Range', $start->format('Y-m-d') . ' to ' . $end->format('Y-m-d')]);
-            fputcsv($out, ['Exported At', now()->toIso8601String()]);
+            fputcsv($out, ['Timezone', 'PHT (UTC+08:00)']);
+            fputcsv($out, ['Exported At', now($timezone)->format('Y-m-d H:i:s') . ' PHT']);
             fputcsv($out, []);
 
             fputcsv($out, [
-                'timestamp',
+                'timestamp_pht',
                 'device_id',
                 'voltage',
                 'current',
@@ -243,8 +232,10 @@ class IoTController extends Controller
             ]);
 
             foreach ($rows as $row) {
+                $timestamp = $row->sampled_at ?? $row->created_at;
+
                 fputcsv($out, [
-                    optional($row->created_at)->toIso8601String(),
+                    optional($timestamp)->timezone($timezone)->format('Y-m-d H:i:s') . ' PHT',
                     (string) $row->device_id,
                     $row->voltage,
                     $row->current,

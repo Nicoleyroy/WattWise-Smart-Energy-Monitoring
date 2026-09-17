@@ -98,4 +98,8 @@ Route::get('/definitions', function () {
     return Inertia::render('Definitions');
 })->middleware(['auth', 'verified'])->name('definitions');
 
+Route::get('/monthly-bill-history', function () {
+    return Inertia::render('MonthlyBillHistory');
+})->middleware(['auth', 'verified'])->name('monthly-bill-history');
+
 require __DIR__.'/auth.php';

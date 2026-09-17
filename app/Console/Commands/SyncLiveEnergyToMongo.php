@@ -11,7 +11,7 @@ class SyncLiveEnergyToMongo extends Command
 {
     protected $signature = 'iot:sync-live';
 
-    protected $description = 'Store one complete Firebase Live snapshot per device per minute in MongoDB';
+    protected $description = 'Store Firebase Live energy snapshots in MongoDB';
 
     public function handle(FirebaseService $firebase): int
     {
@@ -23,7 +23,8 @@ class SyncLiveEnergyToMongo extends Command
             return self::SUCCESS;
         }
 
-        $sampledAt = Carbon::now()->startOfMinute();
+        $sampledAt = Carbon::now();
+        $sampledAt->minute(intdiv($sampledAt->minute, 5) * 5)->second(0)->micro(0);
         $stored = 0;
 
         foreach ($liveData as $deviceId => $reading) {
@@ -59,4 +60,5 @@ class SyncLiveEnergyToMongo extends Command
     {
         return is_numeric($value) ? (float) $value : 0.0;
     }
+
 }

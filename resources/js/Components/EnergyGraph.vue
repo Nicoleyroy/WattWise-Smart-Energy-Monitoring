@@ -62,6 +62,10 @@ const toSeconds = (timestamp) => {
 };
 
 const collectPowerSamples = (historyData, deviceKey) => {
+  if (Array.isArray(historyData?.[deviceKey])) {
+    return historyData[deviceKey];
+  }
+
   const samples = [];
 
   if (!historyData) return samples;
@@ -272,16 +276,22 @@ let activeCallback = null;
 
 let liveCallback = null;
 let dbRetryTimer = null;
+let refreshFrame = null;
+let parsedHistorySamples = [];
 
 const refreshSeries = () => {
-    const historyData = latestHistoryData.value;
+  const historyData = parsedHistorySamples;
     const is24h = timeFilter.value === '24h';
     const is1h = timeFilter.value === '1h';
     const is7d  = timeFilter.value === '7d';
     const is1m  = timeFilter.value === '1m';
 
     
-    allPlugs.value.forEach(plug => {
+    const plugsToRefresh = props.plugId
+      ? allPlugs.value.filter((plug) => plug.id === props.plugId)
+      : allPlugs.value;
+
+    plugsToRefresh.forEach(plug => {
         const deviceKey = `PLUG${plug.id}`;
         const seriesData = is24h ? bucketHistoryInto24Hours(historyData, deviceKey)
                          : is1h ? buildOneHourSeries(historyData, deviceKey)
@@ -310,11 +320,23 @@ const refreshSeries = () => {
     });
 };
 
+const scheduleSeriesRefresh = () => {
+  if (refreshFrame !== null) return;
+
+  refreshFrame = window.requestAnimationFrame(() => {
+    refreshFrame = null;
+    refreshSeries();
+  });
+};
+
 const subscribeToHistory = () => {
     if (!window.db) return;
 
+  const deviceKey = `PLUG${props.plugId}`;
+  const historyRef = window.db.ref('History').child(deviceKey);
+
     if (activeCallback) {
-        window.db.ref('History').off('value', activeCallback);
+    historyRef.off('value', activeCallback);
         activeCallback = null;
     }
 
@@ -337,10 +359,13 @@ const subscribeToHistory = () => {
 
     activeCallback = (snapshot) => {
         loading.value = false;
-        latestHistoryData.value = snapshot.val() || {};
-        refreshSeries();
+        latestHistoryData.value = { [deviceKey]: snapshot.val() || {} };
+      parsedHistorySamples = {
+        [deviceKey]: collectPowerSamples(latestHistoryData.value, deviceKey),
+      };
+      scheduleSeriesRefresh();
     };
-    window.db.ref('History').orderByKey().startAt(startAt.toString()).on('value', activeCallback);
+    historyRef.orderByKey().startAt(startAt.toString()).on('value', activeCallback);
 };
 
 const setTimeFilter = (filter) => {
@@ -357,16 +382,19 @@ const startFirebaseListeners = () => {
 
     subscribeToHistory();
 
+    const deviceKey = `PLUG${props.plugId}`;
+    const liveRef = window.db.ref('Live').child(deviceKey);
+
     if (liveCallback) {
-        window.db.ref('Live').off('value', liveCallback);
+      liveRef.off('value', liveCallback);
     }
 
     liveCallback = (snapshot) => {
-        liveData.value = snapshot.val() || {};
-        refreshSeries();
+        liveData.value = { [deviceKey]: snapshot.val() || {} };
+      scheduleSeriesRefresh();
     };
 
-    window.db.ref('Live').on('value', liveCallback);
+    liveRef.on('value', liveCallback);
 };
 
 onMounted(() => {
@@ -381,18 +409,23 @@ onMounted(() => {
 
 onUnmounted(() => {
 
+  if (refreshFrame !== null) {
+    window.cancelAnimationFrame(refreshFrame);
+    refreshFrame = null;
+  }
+
     if (dbRetryTimer) {
         clearTimeout(dbRetryTimer);
         dbRetryTimer = null;
     }
 
     if (window.db && activeCallback) {
-        window.db.ref('History').off('value', activeCallback);
+      window.db.ref('History').child(`PLUG${props.plugId}`).off('value', activeCallback);
         activeCallback = null;
     }
 
      if (window.db && liveCallback) {
-        window.db.ref('Live').off('value', liveCallback);
+        window.db.ref('Live').child(`PLUG${props.plugId}`).off('value', liveCallback);
         liveCallback = null;
     }
 });
@@ -422,19 +455,9 @@ const getChartOptions = (plug) => {
       }, 
       background: 'transparent',
       animations: {
-        enabled: true,
-        easing: 'easeinout',
-        speed: 800,
-        dynamicAnimation: { speed: 350 }
+        enabled: false
       },
-      dropShadow: {
-        enabled: true,
-        color: plug.color,
-        top: 2,
-        left: 0,
-        blur: 4,
-        opacity: 0.2
-      }
+      dropShadow: { enabled: false }
     },
     theme: { mode: isDark.value ? 'dark' : 'light' },
     colors: [plug.color],
@@ -528,9 +551,9 @@ const getChartOptions = (plug) => {
 </script>
 
 <template>
-  <div class="w-full flex flex-col items-stretch pt-2">
+  <div class="energy-graph w-full flex flex-col items-stretch pt-2">
     <div class="flex justify-end items-center mb-6 px-1">
-      <div class="inline-flex bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur shadow-inner rounded-xl p-1 border border-slate-200/50 dark:border-slate-700/50">
+      <div class="inline-flex bg-slate-100/80 dark:bg-slate-800/80 shadow-inner rounded-xl p-1 border border-slate-200/50 dark:border-slate-700/50">
         <button 
           @click="setTimeFilter('1h')" 
           :class="{'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400': timeFilter === '1h', 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50/50 dark:hover:bg-slate-700/30': timeFilter !== '1h'}" 
@@ -586,3 +609,9 @@ const getChartOptions = (plug) => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.energy-graph {
+  contain: layout paint style;
+}
+</style>

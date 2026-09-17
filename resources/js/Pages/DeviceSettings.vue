@@ -4,7 +4,7 @@ import { Head, Link } from '@inertiajs/vue3'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import Sidebar from '@/Components/Sidebar.vue'
 import DeviceMonitoringPanel from '@/Components/DeviceMonitoringPanel.vue'
-import { Zap, Clock, ArrowLeft, Settings, Calendar, Power, Pencil, Check, X, Activity, Plus, Trash2, ToggleLeft, ToggleRight, Archive, Download } from 'lucide-vue-next'
+import { Zap, ArrowLeft, Settings, Calendar, Power, Pencil, Check, X, Activity, Plus, Trash2, ToggleLeft, ToggleRight, Archive, Download } from 'lucide-vue-next'
 
 const props = defineProps({
     device: { type: Object, required: true }
@@ -27,9 +27,6 @@ const isFirebaseConnected = ref(false)
 const isDeviceOn = ref(true)
 const showThresholdModal = ref(false)
 const dailyLimitForm = ref({ kwh: 0, type: 'daily' }), isSavingThreshold = ref(false), thresholdMessage = ref('')
-const monthlyBillForm = ref({ baselineKwh: 0, ratePerKwh: 0 })
-const isSavingMonthlyBill = ref(false)
-const monthlyBillMessage = ref('')
 const showEnergyExportModal = ref(false)
 const isExportingEnergy = ref(false)
 const energyExportMessage = ref('')
@@ -44,7 +41,6 @@ const latestEnergyData = ref({})
 const isEditingDeviceName = ref(false)
 const deviceNameInput = ref('')
 const isSavingDeviceName = ref(false)
-
 const MAX_VALID_POWER_W = 1_000_000
 
 const sanitizePower = (value, fallback = 0) => {
@@ -531,35 +527,6 @@ const refreshThresholdUsage = () => {
     deviceData.value.dailyKwh = getUsageByThresholdType(activeType, latestEnergyData.value, latestPlugData.value)
 }
 
-const fetchMonthlyBill = async () => {
-    try {
-        const response = await axios.get(`/api/devices/${props.device.id}/monthly-bill`)
-        const bill = response.data?.data
-        if (bill) {
-            monthlyBillForm.value.baselineKwh = Number(bill.baseline_kwh || 0)
-            monthlyBillForm.value.ratePerKwh = Number(bill.rate_per_kwh || 0)
-        }
-    } catch (error) {
-        console.error('Failed to load monthly bill details:', error)
-    }
-}
-
-const saveMonthlyBill = async () => {
-    isSavingMonthlyBill.value = true
-    monthlyBillMessage.value = ''
-    try {
-        await axios.post(`/api/devices/${props.device.id}/monthly-bill`, {
-            baseline_kwh: monthlyBillForm.value.baselineKwh,
-            rate_per_kwh: monthlyBillForm.value.ratePerKwh,
-        })
-        monthlyBillMessage.value = 'Monthly bill details saved.'
-    } catch (error) {
-        monthlyBillMessage.value = error.response?.data?.message || 'Unable to save monthly bill details.'
-    } finally {
-        isSavingMonthlyBill.value = false
-    }
-}
-
 // ── Device name ──
 onMounted(() => {
     const savedName = localStorage.getItem(`device_${props.device.id}_name`)
@@ -567,8 +534,6 @@ onMounted(() => {
     fetchSchedules()
     fetchScheduleHistory()
     fetchDeviceThreshold()
-    fetchMonthlyBill()
-
     if (window.db) {
         isFirebaseConnected.value = true
         const deviceKey = `PLUG${props.device.id}`
@@ -610,6 +575,7 @@ onMounted(() => {
             latestEnergyData.value = snapshot.val() || {}
             refreshThresholdUsage()
         })
+
     }
 })
 
@@ -670,11 +636,6 @@ const formattedVoltage = computed(() => voltage.value.toFixed(1))
 const formattedCurrent = computed(() => current.value.toFixed(2))
 const formattedPower = computed(() => power.value.toFixed(1))
 const formattedEnergy = computed(() => energy.value.toFixed(2))
-const currentMonthlyKwh = computed(() => Math.max(0, Number(latestEnergyData.value?.monthly_kwh ?? latestPlugData.value?.monthly_kwh ?? 0)))
-const baselineMonthlyBill = computed(() => monthlyBillForm.value.baselineKwh * monthlyBillForm.value.ratePerKwh)
-const currentMonthlyBill = computed(() => currentMonthlyKwh.value * monthlyBillForm.value.ratePerKwh)
-const monthlySavings = computed(() => baselineMonthlyBill.value - currentMonthlyBill.value)
-const formatCurrency = (amount) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(amount) || 0)
 const controlActionLabel = computed(() => (isDeviceOn.value ? 'OFF' : 'ON'))
 const controlActionClass = computed(() => (
     isDeviceOn.value
@@ -695,14 +656,14 @@ const controlActionClass = computed(() => (
                 </Link>
 
                 <!-- Device Header -->
-                <div class="sticky top-0 z-50 -mx-6 mb-8 border-b border-gray-200/90 bg-white/95 px-6 pt-4 pb-0 shadow-lg shadow-gray-900/5 backdrop-blur-md transition-colors dark:border-gray-800 dark:bg-gray-950/95">
+                <div class="sticky top-0 z-50 -mx-6 mb-8 rounded-xl border border-slate-200 bg-white px-6 pt-5 shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-950">
                     <div class="flex items-start justify-between gap-4">
                         <div class="flex min-w-0 items-center gap-4 sm:gap-6">
                             
                             <div class="min-w-0">
-                                <p class="mb-1 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-600 dark:text-cyan-400">Plug Settings</p>
+                                <p class="mb-1 text-[11px] font-semibold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">Device control</p>
                                 <div v-if="!isEditingDeviceName" class="flex items-center gap-2">
-                                    <h1 class="truncate text-xl font-extrabold tracking-tight text-gray-900 dark:text-gray-100 sm:text-3xl">{{ deviceData.name }}</h1>
+                                    <h1 class="truncate text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100 sm:text-2xl">{{ deviceData.name }}</h1>
                                     <button @click="startEditDeviceName"
                                         class="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors"
                                         title="Rename device">
@@ -721,7 +682,7 @@ const controlActionClass = computed(() => (
                                         <X class="w-4 h-4" />
                                     </button>
                                 </div>
-                                <p class="text-gray-600 dark:text-gray-400 text-sm font-medium">Plug Unit {{ deviceData.plugId }}</p>
+                                <p class="mt-1 text-sm font-medium text-gray-600 dark:text-gray-400">Plug Unit {{ deviceData.plugId }} <span class="mx-1 text-gray-300 dark:text-gray-700">/</span> {{ isFirebaseConnected ? 'Live link active' : 'Connecting' }}</p>
                             </div>
                         </div>
                         <button @click="handleTurnOff"
@@ -735,12 +696,12 @@ const controlActionClass = computed(() => (
                     <!-- Tabs -->
                     <div class="mt-6 flex items-center gap-2">
                         <button @click="currentTab = 'monitoring'"
-                            class="flex items-center gap-2 rounded-t-xl px-4 py-3 text-sm font-bold transition-all shadow-sm sm:px-6"
+                            class="flex items-center gap-2 rounded-t-lg px-4 py-3 text-sm font-semibold transition-colors sm:px-6"
                             :class="currentTab === 'monitoring' ? 'bg-cyan-500 text-white shadow-cyan-500/20' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'">
                             <Activity class="w-4 h-4" /> Live Monitoring
                         </button>
                         <button @click="currentTab = 'settings'"
-                            class="flex items-center gap-2 rounded-t-xl px-4 py-3 text-sm font-bold transition-all shadow-sm sm:px-6"
+                            class="flex items-center gap-2 rounded-t-lg px-4 py-3 text-sm font-semibold transition-colors sm:px-6"
                             :class="currentTab === 'settings' ? 'bg-cyan-500 text-white shadow-cyan-500/20' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'">
                             <Settings class="w-4 h-4" /> General Settings
                         </button>
@@ -836,54 +797,6 @@ const controlActionClass = computed(() => (
                                     {{ energyExportMessage }}
                                 </div>
                             </div>
-                        </div>
-                    </div>
-
-                    <!-- ─── Scheduling Section ─── -->
-                    <div class="mb-10">
-                        <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-4">
-                            <div>
-                                <h2 class="text-2xl font-black text-gray-900 dark:text-gray-100 tracking-tight">Monthly Electricity Bill</h2>
-                                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Compare this plug's live monthly consumption with your expected monthly use.</p>
-                            </div>
-                            <span class="text-xs font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-widest">Current month</span>
-                        </div>
-
-                        <div class="bg-white dark:bg-gray-900 border border-cyan-400/50 dark:border-cyan-500/30 rounded-2xl p-6 shadow-sm">
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                <div>
-                                    <label class="block text-xs font-black text-gray-500 dark:text-gray-500 uppercase tracking-widest mb-2">Expected Monthly Usage (kWh)</label>
-                                    <input v-model.number="monthlyBillForm.baselineKwh" type="number" min="0" step="0.001" placeholder="e.g. 100" class="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all text-gray-900 dark:text-gray-100 font-bold" />
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-black text-gray-500 dark:text-gray-500 uppercase tracking-widest mb-2">Electricity Rate (PHP per kWh)</label>
-                                    <input v-model.number="monthlyBillForm.ratePerKwh" type="number" min="0" step="0.0001" placeholder="e.g. 12.50" class="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all text-gray-900 dark:text-gray-100 font-bold" />
-                                </div>
-                            </div>
-
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-                                <div class="rounded-xl bg-gray-50 dark:bg-gray-800/60 p-4">
-                                    <p class="text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest">Consumed</p>
-                                    <p class="mt-2 text-2xl font-black text-gray-900 dark:text-gray-100">{{ currentMonthlyKwh.toFixed(3) }} <span class="text-sm text-gray-500">kWh</span></p>
-                                    <p class="mt-1 text-sm font-bold text-gray-600 dark:text-gray-300">{{ formatCurrency(currentMonthlyBill) }}</p>
-                                </div>
-                                <div class="rounded-xl bg-gray-50 dark:bg-gray-800/60 p-4">
-                                    <p class="text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest">Expected Bill</p>
-                                    <p class="mt-2 text-2xl font-black text-gray-900 dark:text-gray-100">{{ formatCurrency(baselineMonthlyBill) }}</p>
-                                    <p class="mt-1 text-sm font-bold text-gray-600 dark:text-gray-300">{{ monthlyBillForm.baselineKwh.toFixed(3) }} kWh target</p>
-                                </div>
-                                <div class="rounded-xl p-4" :class="monthlySavings >= 0 ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'bg-amber-50 dark:bg-amber-950/30'">
-                                    <p class="text-[11px] font-black uppercase tracking-widest" :class="monthlySavings >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'">{{ monthlySavings >= 0 ? 'Estimated Savings' : 'Over Expected Cost' }}</p>
-                                    <p class="mt-2 text-2xl font-black" :class="monthlySavings >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'">{{ formatCurrency(Math.abs(monthlySavings)) }}</p>
-                                    <p class="mt-1 text-sm font-bold" :class="monthlySavings >= 0 ? 'text-emerald-700/80 dark:text-emerald-400/80' : 'text-amber-700/80 dark:text-amber-400/80'">{{ (monthlyBillForm.baselineKwh - currentMonthlyKwh).toFixed(3) }} kWh difference</p>
-                                </div>
-                            </div>
-
-                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-6">
-                                <p class="text-xs text-gray-500 dark:text-gray-400">Rate is measured per kWh, not per watt. Values are saved separately for each plug and reset for a new month.</p>
-                                <button @click="saveMonthlyBill" :disabled="isSavingMonthlyBill" class="shrink-0 px-5 py-3 bg-cyan-600 text-white rounded-xl hover:bg-cyan-500 transition-all font-bold text-sm shadow-lg shadow-cyan-500/20 disabled:opacity-50">{{ isSavingMonthlyBill ? 'Saving...' : 'Save Bill Details' }}</button>
-                            </div>
-                            <p v-if="monthlyBillMessage" class="mt-3 text-sm font-bold" :class="monthlyBillMessage.includes('saved') ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'">{{ monthlyBillMessage }}</p>
                         </div>
                     </div>
 

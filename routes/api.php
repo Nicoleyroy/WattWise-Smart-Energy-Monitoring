@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\IoTController;
 use App\Http\Controllers\Api\MaintenanceAlertController;
 use App\Http\Controllers\Api\MonthlyElectricityBillController;
+use App\Http\Controllers\Api\MonthlyBillHistoryController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -25,7 +26,6 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/iot/readings', [IoTController::class, 'getLatestReadings'])->name('api.iot.readings');
     Route::get('/iot/statistics', [IoTController::class, 'getStatistics'])->name('api.iot.statistics');
     Route::get('/iot/history', [IoTController::class, 'getHistory'])->name('api.iot.history');
-    Route::delete('/devices/{deviceId}/energy', [IoTController::class, 'clearEnergyData'])->name('api.devices.energy.clear');
     // Dashboard data endpoints
     Route::get('/dashboard/data', [DashboardController::class, 'getDashboardData'])->name('api.dashboard.data');
     
@@ -56,6 +56,8 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::post('/devices/{deviceId}/name', [DashboardController::class, 'setDeviceName'])->name('api.devices.name.set');
     Route::get('/devices/{deviceId}/monthly-bill', [MonthlyElectricityBillController::class, 'show']);
     Route::post('/devices/{deviceId}/monthly-bill', [MonthlyElectricityBillController::class, 'store']);
+    Route::get('/monthly-bill-history', [MonthlyBillHistoryController::class, 'index'])->name('api.monthly-bill-history.index');
+    Route::get('/monthly-bill-history/export.csv', [MonthlyBillHistoryController::class, 'exportCsv'])->name('api.monthly-bill-history.export.csv');
 
     // Notifications
     Route::post('/notifications/{id}/read', [IoTController::class, 'markAsRead']);

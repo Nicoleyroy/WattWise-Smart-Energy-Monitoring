@@ -79,22 +79,23 @@ const terms = [
         <main class="flex-1 bg-slate-50 px-8 pb-8 pt-4 dark:bg-gray-950 transition-all duration-300" style="margin-left: var(--sidebar-width, 4rem);">
             <div class="max-w-4xl mx-auto">
                 <!-- Header -->
-                <div class="sticky top-0 z-30 mb-10 rounded-2xl border border-slate-200/80 bg-white/85 px-5 py-5 shadow-sm shadow-slate-200/60 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80 dark:shadow-none">
+                <div class="sticky top-0 z-30 mb-10 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
                     <Link 
                         href="/dashboard" 
-                        class="inline-flex items-center gap-2 text-slate-500 dark:text-gray-400 hover:text-cyan-600 dark:hover:text-cyan-400 mb-6 transition-colors group font-bold"
+                        class="mx-6 mt-4 inline-flex items-center gap-2 text-xs font-medium text-slate-500 transition-colors group hover:text-cyan-600 dark:text-gray-400 dark:hover:text-cyan-400"
                     >
                         <ArrowLeft class="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
                         <span>Back to Dashboard</span>
                     </Link>
 
-                    <div class="flex items-center gap-4">
-                        <div class="p-3 bg-cyan-500 rounded-2xl shadow-xl shadow-cyan-500/20">
-                            <BookOpen class="w-8 h-8 text-white" />
+                    <div class="mt-4 flex items-center gap-4 border-t border-slate-200 px-6 py-5 dark:border-slate-800">
+                        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-50 text-cyan-600 dark:bg-cyan-950/50 dark:text-cyan-400">
+                            <BookOpen class="h-4 w-4" />
                         </div>
                         <div>
-                            <h1 class="text-3xl font-black text-slate-900 dark:text-gray-100 tracking-tight">Definition of Terms</h1>
-                            <p class="text-slate-500 dark:text-gray-400 font-medium tracking-wide">Understanding your energy consumption metrics</p>
+                            <p class="mb-1 text-[11px] font-semibold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">Reference</p>
+                            <h1 class="text-2xl font-bold tracking-tight text-slate-900 dark:text-gray-100">Definition of Terms</h1>
+                            <p class="mt-1 text-sm font-medium text-slate-500 dark:text-gray-400">Understanding your energy consumption metrics</p>
                         </div>
                     </div>
                 </div>

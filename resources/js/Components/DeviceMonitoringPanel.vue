@@ -72,8 +72,6 @@ const lastUpdate = ref(null);
 const viewMode = ref('live'); 
 const activeAlerts = ref([]);
 const exportingCsv = ref(false);
-const clearingData = ref(false);
-const showClearConfirmation = ref(false);
 const LIVE_APPEND_INTERVAL_MS = 2000;
 const MYSQL_SAVE_INTERVAL_MS = 60 * 1000;
 let liveAppendTimer = null;
@@ -180,33 +178,6 @@ const exportToCSV = async () => {
         document.body.removeChild(link);
     } finally {
         exportingCsv.value = false;
-    }
-};
-
-const clearEnergyData = () => {
-    if (!clearingData.value) showClearConfirmation.value = true;
-};
-
-const confirmClearEnergyData = async () => {
-    if (clearingData.value) return;
-
-    clearingData.value = true;
-    try {
-        await axios.delete(`/api/devices/${props.deviceId}/energy`);
-        fullHistory.value = [];
-        history.value = {
-            voltage: [],
-            current: [],
-            power: [],
-            energy: [],
-            labels: [],
-        };
-        showClearConfirmation.value = false;
-    } catch (error) {
-        console.error('Failed to clear energy readings:', error);
-        window.alert('Failed to clear energy readings.');
-    } finally {
-        clearingData.value = false;
     }
 };
 
@@ -554,17 +525,6 @@ const getStatusClass = (key) => {
 
 <template>
     <div class="relative bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm transition-colors duration-300">
-        <button
-            type="button"
-            title="Clear stored energy data"
-            aria-label="Clear stored energy data"
-            @click="clearEnergyData"
-            :disabled="clearingData"
-            class="absolute right-4 top-4 z-10 rounded-lg border border-red-200 bg-red-50 p-2 text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50"
-        >
-            <Trash2 class="h-4 w-4" />
-        </button>
-
         <!-- Alert Banner -->
         <div v-if="activeAlerts.length > 0" class="bg-red-50 dark:bg-red-950/30 border-b border-red-200 dark:border-red-900/50 p-3 overflow-hidden">
             <div class="flex items-center gap-4 animate-marquee whitespace-nowrap">
@@ -589,16 +549,6 @@ const getStatusClass = (key) => {
             </div>
 
             <div class="flex items-center gap-3">
-                <!-- CSV Export -->
-                <button 
-                    @click="exportToCSV"
-                    :disabled="exportingCsv"
-                    class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold transition-all border border-gray-300 dark:border-gray-700 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                    <BarChart3 class="w-4 h-4" />
-                    {{ exportingCsv ? 'EXPORTING...' : 'EXPORT TO CSV' }}
-                </button>
-
                 <!-- View Toggle -->
                 <div class="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-lg border border-gray-200 dark:border-gray-700">
                     <button 
@@ -702,57 +652,5 @@ const getStatusClass = (key) => {
             </div>
         </div>
 
-        <div
-            v-if="showClearConfirmation"
-            class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
-            @click.self="showClearConfirmation = false"
-        >
-            <div class="w-full max-w-md rounded-2xl border border-red-200 bg-white p-6 shadow-2xl dark:border-red-900/60 dark:bg-gray-900">
-                <div class="flex items-start justify-between gap-4">
-                    <div class="flex items-start gap-3">
-                        <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-400">
-                            <Trash2 class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">Clear energy data?</h3>
-                            <p class="mt-1 text-sm leading-relaxed text-gray-500 dark:text-gray-400">
-                                This will permanently delete all stored readings for {{ props.deviceName || `Device ${props.deviceId}` }}.
-                            </p>
-                        </div>
-                    </div>
-                    <button
-                        type="button"
-                        aria-label="Close confirmation"
-                        class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-                        @click="showClearConfirmation = false"
-                    >
-                        <X class="h-5 w-5" />
-                    </button>
-                </div>
-
-                <div class="mt-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-xs font-medium text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
-                    This action cannot be undone. Live monitoring will continue normally.
-                </div>
-
-                <div class="mt-6 flex justify-end gap-3">
-                    <button
-                        type="button"
-                        class="rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-                        @click="showClearConfirmation = false"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        class="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        :disabled="clearingData"
-                        @click="confirmClearEnergyData"
-                    >
-                        <Trash2 class="h-4 w-4" />
-                        {{ clearingData ? 'Clearing...' : 'Clear data' }}
-                    </button>
-                </div>
-            </div>
-        </div>
     </div>
 </template>

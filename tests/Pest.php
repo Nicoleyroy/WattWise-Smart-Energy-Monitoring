@@ -12,8 +12,12 @@
 */
 
 pest()->extend(Tests\TestCase::class)
-    ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
     ->in('Feature');
+
+beforeEach(function () {
+    App\Models\User::query()->delete();
+    App\Models\DatabaseNotification::query()->delete();
+});
 
 /*
 |--------------------------------------------------------------------------

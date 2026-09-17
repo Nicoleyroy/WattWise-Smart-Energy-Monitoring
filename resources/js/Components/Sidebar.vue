@@ -217,6 +217,25 @@ watch(isExpanded, (value) => {
                 </span>
             </Link>
 
+            <!-- Monthly Bill History -->
+            <Link
+                :href="route('monthly-bill-history')"
+                :class="[
+                    'flex items-center gap-3 rounded-lg px-3 py-3 transition-all',
+                    isActive('monthly-bill-history')
+                        ? 'bg-blue-500/20 text-cyan-400'
+                        : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                ]"
+                title="Monthly Bill History"
+            >
+                <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7 16l3-4 3 2 5-7" />
+                </svg>
+                <span :class="['whitespace-nowrap transition-all duration-300', labelClass]">
+                    Monthly Bills
+                </span>
+            </Link>
+
             <!-- Settings -->
             <Link
                 :href="route('profile.edit')"
