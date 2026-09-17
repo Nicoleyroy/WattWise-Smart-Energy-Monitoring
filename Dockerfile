@@ -1,7 +1,7 @@
 FROM composer:2 AS php_dependencies
 WORKDIR /app
 COPY composer.json composer.lock ./
-RUN composer install --no-dev --prefer-dist --no-interaction --no-progress --no-scripts --optimize-autoloader
+RUN composer install --no-dev --prefer-dist --no-interaction --no-progress --no-scripts --optimize-autoloader --ignore-platform-req=ext-mongodb
 
 FROM node:22-alpine AS frontend
 WORKDIR /app
