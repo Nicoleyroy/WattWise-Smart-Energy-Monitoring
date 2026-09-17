@@ -9,6 +9,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY resources ./resources
 COPY public ./public
+COPY --from=php_dependencies /app/vendor ./vendor
 COPY vite.config.js tailwind.config.js postcss.config.js jsconfig.json ./
 RUN npm run build
 
