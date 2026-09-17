@@ -35,6 +35,7 @@ class HandleInertiaRequests extends Middleware
                 'user' => $request->user(),
                 'unread_notifications_count' => $request->user() ? $request->user()->unreadNotifications()->count() : 0,
             ],
+            'recaptcha_site_key' => config('services.recaptcha.site_key'),
         ];
     }
 }

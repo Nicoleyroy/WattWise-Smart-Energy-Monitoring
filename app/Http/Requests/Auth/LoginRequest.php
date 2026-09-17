@@ -32,8 +32,10 @@ class LoginRequest extends FormRequest
         return [
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
+            // Login remains usable when the frontend CAPTCHA key is not
+            // available at build time. Registration still requires CAPTCHA.
             'g_recaptcha_response' => $recaptchaSecret
-                ? ['required', new RecaptchaV2()]
+                ? ['nullable', new RecaptchaV2()]
                 : ['nullable'],
         ];
     }

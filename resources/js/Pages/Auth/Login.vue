@@ -3,13 +3,14 @@ import Checkbox from '@/Components/Checkbox.vue';
 import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
 import TextInput from '@/Components/TextInput.vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import { Mail, Lock, Zap, Eye, EyeOff, ShieldCheck, ChevronRight, Activity, Loader2 } from 'lucide-vue-next';
 import { ref } from 'vue';
 import vueRecaptcha from 'vue3-recaptcha2';
 
 const showPassword = ref(false);
-const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';
+const page = usePage();
+const siteKey = page.props.recaptcha_site_key || '';
 
 defineProps({
     canResetPassword: {

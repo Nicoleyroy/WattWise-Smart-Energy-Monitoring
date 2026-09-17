@@ -16,6 +16,7 @@ return [
 
     'recaptcha' => [
         'secret' => env('RECAPTCHA_SECRET_KEY'),
+        'site_key' => env('VITE_RECAPTCHA_SITE_KEY'),
     ],
 
     'postmark' => [

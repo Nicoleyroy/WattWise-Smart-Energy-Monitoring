@@ -2,14 +2,15 @@
 import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
 import TextInput from '@/Components/TextInput.vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import { User, Mail, Lock, Zap, Eye, EyeOff, Loader2, Cpu, ChevronRight, ShieldCheck, Activity } from 'lucide-vue-next';
 import { ref, computed } from 'vue';
 import vueRecaptcha from 'vue3-recaptcha2';
 
 const showPassword = ref(false);
 const showConfirmPassword = ref(false);
-const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';
+const page = usePage();
+const siteKey = page.props.recaptcha_site_key || '';
 
 const form = useForm({
     name: '',
