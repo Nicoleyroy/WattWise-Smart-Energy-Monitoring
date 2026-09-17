@@ -2,7 +2,6 @@
 
 namespace App\Http\Requests\Auth;
 
-use App\Rules\RecaptchaV2;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
@@ -27,16 +26,9 @@ class LoginRequest extends FormRequest
      */
     public function rules(): array
     {
-        $recaptchaSecret = config('services.recaptcha.secret');
-
         return [
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
-            // Login remains usable when the frontend CAPTCHA key is not
-            // available at build time. Registration still requires CAPTCHA.
-            'g_recaptcha_response' => $recaptchaSecret
-                ? ['nullable', new RecaptchaV2()]
-                : ['nullable'],
         ];
     }
 
